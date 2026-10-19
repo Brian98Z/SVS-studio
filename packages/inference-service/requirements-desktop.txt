@@ -1,0 +1,9 @@
+# Minimal supported desktop inference worker dependencies. Install into the
+# dedicated Python environment passed to scripts/package_desktop.ps1.
+Flask>=3.0,<4
+numpy>=1.26,<3
+scipy>=1.11
+soundfile>=0.12
+onnxruntime>=1.17
+PyYAML>=6.0
+librosa>=0.10

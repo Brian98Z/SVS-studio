@@ -1,0 +1,2 @@
+# Optional native VST3 effect hosting. Install only if the user explicitly opts in.
+pedalboard>=0.9.17,<0.10

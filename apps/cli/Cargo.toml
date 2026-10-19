@@ -1,0 +1,14 @@
+[package]
+name = "svs-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "svs-cli"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+svs-core = { path = "../../packages/core-engine" }
+anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }

@@ -1,0 +1,3 @@
+# Optional professional interchange support; media probing/muxing uses FFmpeg CLI.
+# AAF writer uses pyaaf2 in the shared abc2diffsinger Python runtime.
+pyaaf2>=1.7.1

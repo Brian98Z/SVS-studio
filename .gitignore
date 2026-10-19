@@ -1,0 +1,62 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config/llm.json
+
+# Rust, Node, Tauri and Python build output
+/target/
+**/target/
+**/node_modules/
+**/dist/
+**/.venv*/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+*.py[cod]
+*.egg-info/
+/apps/desktop/src-tauri/runtime/
+/apps/desktop/src-tauri/python/
+/apps/desktop/src-tauri/desktop-dist/
+/apps/desktop/src-tauri/inference-service/
+/apps/desktop/src-tauri/g2p-engine/
+/apps/desktop/src-tauri/interchange/
+/apps/desktop/src-tauri/svs-server.exe
+/apps/desktop/src-tauri/gen/
+/apps/desktop/src-tauri/schemas/
+/apps/desktop/src-tauri/icon.ico
+/svs-python.spec
+
+# Model weights, cached PCM and local media
+**/models/
+**/voicebanks/
+**/cache_pcm/
+*.onnx
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.pcm
+*.wav
+*.mp3
+*.mp4
+*.bin
+*.log
+
+# Local delivery packages, user projects and acceptance evidence
+/release/
+/acceptance/
+/projects/
+/songs/
+/*.svsproj
+/*.abc
+/fx-input.json
+/fx-js.bin
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

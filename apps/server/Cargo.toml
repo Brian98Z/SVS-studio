@@ -1,0 +1,23 @@
+[package]
+name = "svs-server"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "svs-server"
+path = "src/main.rs"
+
+[dependencies]
+svs-core = { path = "../../packages/core-engine" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+hound = "3"
+anyhow = "1"
