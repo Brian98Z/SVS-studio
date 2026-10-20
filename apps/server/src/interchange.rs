@@ -10,16 +10,21 @@ pub async fn interchange(State(st): State<AppState>, Json(mut request): Json<Val
     let Some(action) = request.get("action").and_then(Value::as_str).map(str::to_owned) else {
         return (axum::http::StatusCode::BAD_REQUEST, Json(json!({"ok":false,"error":"action is required"}))).into_response();
     };
-    let importing = matches!(action.as_str(), "import_musicxml" | "import_midi" | "import_ufdata");
-    let exporting = matches!(action.as_str(), "export_musicxml" | "export_midi" | "export_lrc");
+    let importing = matches!(action.as_str(), "import_musicxml" | "import_midi" | "import_ufdata" | "import_bundle" | "sync_pull");
+    let exporting = matches!(action.as_str(), "export_musicxml" | "export_midi" | "export_lrc" | "export_bundle" | "sync_push" | "sync_pull");
     if !importing && !exporting {
         return (axum::http::StatusCode::BAD_REQUEST, Json(json!({"ok":false,"error":"unsupported action"}))).into_response();
     }
-    if exporting && request.get("project").is_none() {
-        request["project"] = match serde_json::to_value(&*st.project.read().await) {
-            Ok(project) => project,
-            Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"ok":false,"error":e.to_string()}))).into_response(),
-        };
+    let sync_revision;
+    {
+        let current = st.project.read().await;
+        sync_revision = st.edit_rev.load(std::sync::atomic::Ordering::SeqCst);
+        if exporting && request.get("project").is_none() {
+            request["project"] = match serde_json::to_value(&*current) {
+                Ok(project) => project,
+                Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"ok":false,"error":e.to_string()}))).into_response(),
+            };
+        }
     }
     if let Err(e) = engine::ensure_audio_service(&st).await {
         return (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"INFERENCE_DOWN","detail":e.to_string()}))).into_response();
@@ -47,9 +52,19 @@ pub async fn interchange(State(st): State<AppState>, Json(mut request): Json<Val
         if let Err(e) = svs_core::timeline::validate_tempos(&project.tempos) {
             return (axum::http::StatusCode::BAD_REQUEST, Json(json!({"ok":false,"error":format!("invalid imported tempo map: {e}")}))).into_response();
         }
-        st.snapshot().await;
-        *st.project.write().await = project;
+        let mut current = st.project.write().await;
+        if action == "sync_pull" && sync_revision != st.edit_rev.load(std::sync::atomic::Ordering::SeqCst) {
+            return (axum::http::StatusCode::CONFLICT, Json(json!({"error":"STALE_PROJECT","detail":"工程在下载期间已编辑；未替换当前工程，已下载文件和备份仍保留。","project_path":response.get("project_path"),"backup_path":response.get("backup_path")}))).into_response();
+        }
+        st.history.lock().await.push(&*current);
+        *current = project;
+        *st.path.write().await = if matches!(action.as_str(), "import_bundle" | "sync_pull") {
+            response.get("project_path").and_then(Value::as_str).map(str::to_owned)
+        } else {
+            None
+        };
         st.bump_rev();
+        drop(current);
         st.broadcast(json!({"type":"project.imported","action":action})).await;
     }
     Json(response).into_response()

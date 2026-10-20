@@ -23,7 +23,11 @@ from .voices import register_routes as register_voices
 from .vst_host import register_routes as register_vst
 from .media_io import register_routes as register_media
 register_voices(app)
+from .voice_install import register_routes as register_voice_install
+register_voice_install(app)
 register_vst(app)
+from .vst_editor import register_routes as register_editor
+register_editor(app)
 register_media(app)
 from .g2p_api import register_routes as register_g2p
 register_g2p(app)
@@ -31,6 +35,8 @@ from .mixer import register_routes as register_mixer
 from .music_ai import register_routes as register_music_ai
 register_mixer(app)
 register_music_ai(app)
+from .realtime_mixer import register_routes as register_realtime_mixer
+register_realtime_mixer(app)
 from .hardware import register_routes as register_hardware
 register_hardware(app)
 from .interchange_api import register_routes as register_interchange

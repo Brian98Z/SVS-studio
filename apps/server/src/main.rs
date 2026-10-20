@@ -14,6 +14,7 @@ mod expression;
 mod interchange;
 mod mixing;
 mod rendering;
+mod audio_output;
 mod stems;
 
 use axum::routing::{get, patch, post};
@@ -35,6 +36,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let app = Router::new()
+        .route("/api/audio/output/devices", get(audio_output::devices))
+        .route("/api/audio/output/open", post(audio_output::open))
+        .route("/api/audio/output/{id}/pcm", post(audio_output::pcm))
+        .route("/api/audio/output/{id}", get(audio_output::status).delete(audio_output::close))
         .route("/api/project", get(handlers::get_project))
         .route("/api/project/new", post(handlers::new_project))
         .route("/api/project/open", post(handlers::open_project))
@@ -42,6 +47,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/project/tempos", patch(tempo::patch_tempos))
         .route("/api/project/master", patch(handlers::patch_master))
         .route("/api/project/mixer", patch(mixing::patch_mixer))
+        .route("/api/project/effect/read", post(mixing::read_effect))
+        .route("/api/project/effect", axum::routing::patch(mixing::patch_effect))
         .route("/api/track", post(handlers::add_track))
         .route("/api/track/{id}", patch(handlers::patch_track).delete(handlers::del_track))
         .route("/api/track/{id}/note", post(handlers::add_note))
@@ -73,6 +80,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws", get(handlers::ws_handler))
         .fallback_service(tower_http::services::ServeDir::new(std::env::var("SVS_DESKTOP_DIST").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../desktop/dist").to_string()))
             .append_index_html_on_directories(true))
+        .layer(tower_http::cors::CorsLayer::new()
+            .allow_origin(axum::http::HeaderValue::from_static("http://tauri.localhost"))
+            .allow_methods([axum::http::Method::GET, axum::http::Method::POST,
+                axum::http::Method::PATCH, axum::http::Method::DELETE])
+            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-audio-sequence")])
+            .expose_headers(tower_http::cors::Any))
         .with_state(st);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8761));

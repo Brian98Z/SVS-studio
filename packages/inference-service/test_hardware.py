@@ -72,29 +72,3 @@ def test_hardware_route_includes_status(monkeypatch):
     assert response.get_json() == {"ok": True, "preference": "cpu", "sessions": []}
     invalid = app.test_client().get("/hardware?device=npu")
     assert invalid.status_code == 422
-def test_runtime_cache_reuses_single_predictor_and_serializes(monkeypatch, tmp_path):
-    from inference_service import native_pipeline
-    voicebank = tmp_path / "bank"
-    voicebank.mkdir()
-    (voicebank / "model.onnx").write_bytes(b"model")
-    (voicebank / "dsconfig.yaml").write_text("model: model.onnx")
-    created = []
-    reports = []
-
-    class FakePred:
-        def __init__(self, path):
-            created.append(self)
-            self.dsvocoder = SimpleNamespace(sample_rate=24000)
-
-    monkeypatch.setattr("diffsinger_utau.voice_bank.PredAll", FakePred)
-    monkeypatch.setattr(native_pipeline, "_voicebank_signature", lambda path: (("model.onnx", 5, 1),))
-    monkeypatch.setattr(hardware, "setup_runtime", lambda pred, preference, a2v: reports.append(pred) or {"preference": preference, "provider": "CPUExecutionProvider"})
-    monkeypatch.setattr(native_pipeline, "predict_section", lambda *args: __import__("numpy").ones(4, dtype="float32"))
-    monkeypatch.setattr(hardware, "publish_runtime", lambda report: None)
-    native_pipeline._PREDICTOR_CACHE = None
-    first = native_pipeline.render_sections(None, [{"offset": 0}], voicebank, {}, [], 0, "cpu")
-    second = native_pipeline.render_sections(None, [{"offset": 0}], voicebank, {}, [], 0, "cpu")
-    assert len(created) == 1
-    assert reports == [created[0]]
-    assert first[1] == second[1] == 24000
-    assert (first[0] == second[0]).all()

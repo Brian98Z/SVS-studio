@@ -1,0 +1,7 @@
+# Separate Windows x64 / Python 3.11 CUDA 13.0 environment; compatible driver required.
+# Do not install CPU onnxruntime into this environment.
+--extra-index-url https://download.pytorch.org/whl/cu130
+-r requirements-music-ai.txt
+torch==2.11.0+cu130
+torchaudio==2.11.0+cu130
+onnxruntime-gpu==1.31.0

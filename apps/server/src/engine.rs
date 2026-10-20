@@ -62,6 +62,11 @@ pub async fn ensure_inference(st: AppState) {
             bundled.is_dir().then_some(bundled)
         });
     let mut command = std::process::Command::new(&python);
+    #[cfg(windows)]
+    if desktop {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW for desktop inference workers.
+    }
     if !packaged {
         command.args(["-m", "inference_service.service_runner"]);
     }

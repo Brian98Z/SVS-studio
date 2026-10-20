@@ -1,5 +1,6 @@
 """Unit tests for copy-on-write native DiffSinger speaker selection and embedding blends."""
 import numpy as np
+from types import SimpleNamespace
 import pytest
 
 from inference_service.voice_runtime import prepare_speaker
@@ -24,6 +25,17 @@ class Predictor:
         for name in ("dsdur", "dspitch", "dsvariance", "dsacoustic"):
             setattr(self, name, Component())
         self.available_speakers = ["alto", "tenor"]
+        for stage, attribute, component in (
+            ("pred_duration", "dsdur", "dsdur"),
+            ("pred_pitch", "dspitch", "dspitch"),
+            ("pred_variance", "dsvariance", "dsvariance"),
+            ("pred_acoustic", "ds_acoustic", "dsacoustic"),
+        ):
+            reader = getattr(self, component)
+            consumer = SimpleNamespace(**{attribute: reader})
+            if component != "dsacoustic":
+                consumer.input_processor = SimpleNamespace(vb_reader=reader)
+            setattr(self, stage, consumer)
 
 
 def test_selection_requires_all_component_support():
@@ -63,3 +75,28 @@ def test_invalid_blend_and_emotion_are_rejected():
     ):
         with pytest.raises(ValueError):
             prepare_speaker(pred, setting)
+
+
+def test_real_acoustic_inputs_consume_blend_without_changing_cached_speaker():
+    acoustic = pytest.importorskip("diffsinger_utau.voice_bank.pred_acoustic")
+    pred = Predictor()
+    reader = pred.dsacoustic
+    reader.phonemes = SimpleNamespace(content={"a": 1})
+    reader.languages = SimpleNamespace(content={})
+    reader.use_lang_id = False
+    reader.acoustic_model = SimpleNamespace(session=True, input_names=["tokens", "durations", "f0", "spk_embed"])
+    pred.pred_acoustic = object.__new__(acoustic.PredAcoustic)
+    pred.pred_acoustic.ds_acoustic = reader
+    pred.pred_acoustic.timestep = 512 / 44100
+    section = acoustic.DSReader.DSSection({
+        "offset": 0, "text": "a", "ph_seq": "a", "ph_num": "1",
+        "ph_dur": "0.1", "note_seq": "A4", "note_slur": "0", "note_dur": "0.1",
+        "f0_seq": "440 440 440 440 440 440 440 440 440", "f0_timestep": str(512 / 44100),
+    })
+    clone, alias = prepare_speaker(pred, {"blend": [
+        {"speaker_id": "alto", "weight": .25}, {"speaker_id": "tenor", "weight": .75},
+    ]})
+    inputs = clone.pred_acoustic._prepare_inputs(section, lang="zh", speaker=alias)
+    np.testing.assert_allclose(inputs["spk_embed"], np.broadcast_to([.25, .75], inputs["spk_embed"].shape))
+    original = pred.pred_acoustic._prepare_inputs(section, lang="zh", speaker="alto")
+    np.testing.assert_allclose(original["spk_embed"], np.broadcast_to([1., 0.], original["spk_embed"].shape))

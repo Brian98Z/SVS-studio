@@ -22,6 +22,7 @@ DISK_DIR = Path(__file__).resolve().parent.parent / "cache_pcm"
 class AudioCache:
     def __init__(self, max_items: int = MAX_ITEMS, max_bytes: int = MAX_BYTES):
         self._d: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._revisions: dict[str, str | None] = {}
         self._lock = threading.Lock()
         self._bytes = 0
         self.max_items = max_items
@@ -38,9 +39,9 @@ class AudioCache:
         safe = "".join(c if c.isalnum() else "-" for c in key)[:80]
         return DISK_DIR / f"{safe}.pcm", DISK_DIR / f"{safe}.meta.json"
 
-    def get(self, key: str) -> np.ndarray | None:
+    def get(self, key: str, revision: str | None = None) -> np.ndarray | None:
         with self._lock:
-            if key in self._d:
+            if key in self._d and self._revisions.get(key) == revision:
                 self._d.move_to_end(key)
                 self.hits += 1
                 return self._d[key]
@@ -49,10 +50,14 @@ class AudioCache:
         try:
             if pcm_path.exists() and meta_path.exists():
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if meta.get("revision") != revision:
+                    with self._lock:
+                        self.misses += 1
+                    return None
                 raw = pcm_path.read_bytes()
                 pcm = np.frombuffer(raw, dtype=np.float32).copy()
                 self.disk_hits += 1
-                self.put(key, pcm, to_disk=False)  # 回填内存
+                self.put(key, pcm, to_disk=False, revision=revision)  # 回填内存
                 return pcm
         except Exception:  # noqa: BLE001 — 磁盘坏档按未命中处理
             pass
@@ -60,12 +65,13 @@ class AudioCache:
             self.misses += 1
         return None
 
-    def put(self, key: str, audio: np.ndarray, to_disk: bool = True) -> None:
+    def put(self, key: str, audio: np.ndarray, to_disk: bool = True, revision: str | None = None) -> None:
         with self._lock:
             if key in self._d:
                 self._bytes -= self._d[key].nbytes
                 del self._d[key]
             self._d[key] = audio
+            self._revisions[key] = revision
             self._bytes += audio.nbytes
             self._evict()
         # 磁盘层：整轨渲染（render_ds 传入 to_disk=True）落盘，重启后命中
@@ -75,6 +81,7 @@ class AudioCache:
                 pcm_path.write_bytes(np.asarray(audio, dtype=np.float32).tobytes())
                 meta_path.write_text(json.dumps({
                     "hash": key, "samples": int(len(audio)),
+                    "revision": revision,
                     "sample_rate": 24000, "kind": "render_ds_track",
                 }, ensure_ascii=False), encoding="utf-8")
             except Exception:  # noqa: BLE001 — 磁盘满/权限失败不影响内存缓存
@@ -86,18 +93,21 @@ class AudioCache:
                 n = len(self._d)
                 self._bytes = 0
                 self._d.clear()
+                self._revisions.clear()
                 return n
             n = 0
             for h in hashes or []:
                 if h in self._d:
                     self._bytes -= self._d[h].nbytes
                     del self._d[h]
+                    self._revisions.pop(h, None)
                     n += 1
             return n
 
     def _evict(self) -> None:
         while len(self._d) > self.max_items or (self._bytes > self.max_bytes and len(self._d) > 1):
-            _, v = self._d.popitem(last=False)
+            key, v = self._d.popitem(last=False)
+            self._revisions.pop(key, None)
             self._bytes -= v.nbytes
 
     def stats(self) -> dict:

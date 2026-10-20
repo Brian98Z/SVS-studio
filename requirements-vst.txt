@@ -1,0 +1,2 @@
+# Optional isolated native VST3 host; never installs or redistributes plugins.
+pedalboard>=0.9.17,<0.10

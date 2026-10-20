@@ -1,0 +1,9 @@
+# Music AI common stack; choose CPU ONNX requirements.txt OR GPU profile.
+# basic-pitch 0.4.0 declares TensorFlow on Python 3.11 even for our ONNX path.
+# Let pip resolve its declared dependencies; this is not a TensorFlow-free install.
+-r requirements-core.txt
+numpy>=1.26,<2
+basic-pitch==0.4.0
+demucs==4.0.1
+torch==2.11.0
+torchaudio==2.11.0

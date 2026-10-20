@@ -236,7 +236,15 @@ def import_ufdata(req):
     if not p["tempos"] or p["tempos"][0]["tick"]!=0:p["tempos"].insert(0,{"tick":0,"bpm":p["tempos"][0]["bpm"] if p["tempos"] else 120.0,"curve":"step"})
     p["time_signatures"].sort(key=lambda x:x["tick"])
     return {"project":p}
-ACTIONS={"import_musicxml":import_musicxml,"export_musicxml":export_musicxml,"import_midi":import_midi,"export_midi":export_midi,"export_lrc":export_lrc,"import_ufdata":import_ufdata}
+import importlib.util
+_bundle_path=Path(__file__).with_name("project_bundle.py")
+_bundle_spec=importlib.util.spec_from_file_location("svs_score_project_bundle",_bundle_path)
+if _bundle_spec is None or _bundle_spec.loader is None: raise RuntimeError(f"Cannot load project bundle module at {_bundle_path}")
+_bundle_module=importlib.util.module_from_spec(_bundle_spec)
+_bundle_spec.loader.exec_module(_bundle_module)
+export_bundle=_bundle_module.export_bundle
+import_bundle=_bundle_module.import_bundle
+ACTIONS={"import_musicxml":import_musicxml,"export_musicxml":export_musicxml,"import_midi":import_midi,"export_midi":export_midi,"export_lrc":export_lrc,"import_ufdata":import_ufdata,"export_bundle":export_bundle,"import_bundle":import_bundle}
 def dispatch(req):
     if not isinstance(req,dict):err("request must be a JSON object")
     action=req.get("action")

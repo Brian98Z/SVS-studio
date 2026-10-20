@@ -1,1 +1,0 @@
-# The bridge uses only Python standard-library modules; no third-party runtime dependencies.

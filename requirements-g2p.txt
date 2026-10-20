@@ -1,6 +1,8 @@
+# Optional multilingual pronunciation.
 pypinyin>=0.53,<1
 g2p-en>=2.1,<3
 cmudict>=1.0,<2
 pykakasi>=2.3,<3
 pycantonese>=3.4,<4
 g2pk>=0.9,<1
+jamo>=0.4,<1

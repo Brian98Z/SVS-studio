@@ -14,9 +14,28 @@ def _effects(es):
     if not isinstance(es,list):raise ValueError("effects must be an array")
     out=[]
     for e in es:
-        if not isinstance(e,Mapping) or e.get("type") not in ("eq3","reverb","compressor"):raise ValueError("invalid effect type")
-        k=e["type"];x={"type":k,"enabled":bool(e.get("enabled",False))}
-        if k=="eq3":x.update(low_db=_finite(e.get("low_db",0),"EQ low",-24,24),mid_db=_finite(e.get("mid_db",0),"EQ mid",-24,24),high_db=_finite(e.get("high_db",0),"EQ high",-24,24),low_hz=_finite(e.get("low_hz",250),"EQ low Hz",40,2000),high_hz=_finite(e.get("high_hz",4000),"EQ high Hz",1000,18000))
+        if not isinstance(e,Mapping):raise ValueError("invalid effect type")
+        k=e.get("type")
+        if k not in ("eq3","reverb","compressor","vst3"):raise ValueError("invalid effect type")
+        x={"type":k,"enabled":bool(e.get("enabled",False))}
+        if k=="vst3":
+            from .vst_host import resolve_plugin_path, VSTHostError
+            path=e.get("path")
+            try: resolve_plugin_path(path)
+            except VSTHostError as exc: raise ValueError(str(exc)) from exc
+            params=e.get("parameters",{})
+            if not isinstance(params,Mapping):raise ValueError("VST3 parameters must be an object")
+            clean={}
+            for name,value in params.items():
+                if not isinstance(name,str) or not name or not isinstance(value,(bool,int,float,str)) or isinstance(value,float) and not math.isfinite(value):raise ValueError("VST3 parameters must have names and finite numeric, boolean, or string values")
+                clean[name]=value
+            raw_block=e.get("block_frames",4096)
+            if isinstance(raw_block,bool) or not isinstance(raw_block,int) or not 1<=raw_block<=65536:raise ValueError("VST3 block_frames must be an integer from 1 to 65536")
+            from .vst_host import validate_state
+            try: state=validate_state(e.get("state_base64"))
+            except VSTHostError as exc: raise ValueError(str(exc)) from exc
+            x.update(path=path,parameters=clean,block_frames=raw_block,tail_seconds=_finite(e.get("tail_seconds",0),"VST3 tail seconds",0,10),state_base64=state)
+        elif k=="eq3":x.update(low_db=_finite(e.get("low_db",0),"EQ low",-24,24),mid_db=_finite(e.get("mid_db",0),"EQ mid",-24,24),high_db=_finite(e.get("high_db",0),"EQ high",-24,24),low_hz=_finite(e.get("low_hz",250),"EQ low Hz",40,2000),high_hz=_finite(e.get("high_hz",4000),"EQ high Hz",1000,18000))
         elif k=="reverb":x.update(wet=_finite(e.get("wet",.15),"reverb wet",0,1),room=_finite(e.get("room",.5),"reverb room",0,1))
         else:x.update(threshold_db=_finite(e.get("threshold_db",-18),"threshold",-60,0),ratio=_finite(e.get("ratio",4),"ratio",1,20),attack_ms=_finite(e.get("attack_ms",10),"attack",.1,200),release_ms=_finite(e.get("release_ms",100),"release",1,2000))
         out.append(x)
@@ -85,11 +104,15 @@ def process_effects(audio,effects,sample_rate):
                 delay=max(1,int(sample_rate*(.035+.11*e["room"])*(1+.08*ch)));decay=.25+.65*e["room"]
                 for n in range(delay,len(data)):wet[n,ch]=dry[n-delay,ch]+wet[n-delay,ch]*decay
             data=dry*(1-e["wet"])+wet*e["wet"]*.35
-        else:
+        elif e["type"]=="compressor":
             threshold=10**(e["threshold_db"]/20);attack=math.exp(-1/(sample_rate*e["attack_ms"]*.001));release=math.exp(-1/(sample_rate*e["release_ms"]*.001));env=0.
             for n in range(len(data)):
                 peak=float(np.max(np.abs(data[n])));coef=attack if peak>env else release;env=coef*env+(1-coef)*peak
                 if env>threshold:data[n]*=threshold*(env/threshold)**(1/e["ratio"])/env
+        elif e["type"]=="vst3":
+            from inference_service.vst_host import process_effect
+            rendered=process_effect(e["path"],data.T,sample_rate,parameters=e["parameters"],state_base64=e["state_base64"],block_frames=e["block_frames"],tail_seconds=e["tail_seconds"])
+            data=np.asarray(rendered,dtype=np.float32).T
     return data
 
 def mix_tracks(tracks,sample_rate,config=None):
@@ -139,3 +162,7 @@ def register_routes(app: Any) -> None:
             cfg={"master":{"volume":body.get("master_volume",1),"effects":body.get("master_fx",[])},"buses":body.get("buses",[])};out=mix_tracks(items,rate,cfg)
             return jsonify({"audio":base64.b64encode(out.astype("<f4",copy=False).tobytes()).decode("ascii"),"sample_rate":rate,"channels":2,"frames":len(out)})
         except (ValueError,TypeError,OverflowError) as e:return jsonify({"error":"BAD_REQUEST","detail":str(e)}),400
+        except Exception as e:
+            from inference_service.vst_host import VSTHostError
+            if not isinstance(e,VSTHostError):raise
+            return jsonify({"error":"VST_PROCESSING_ERROR","detail":str(e)}),422

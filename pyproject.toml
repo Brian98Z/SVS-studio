@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "svs-mcp"
+version = "0.1.0"
+description = "SVS Studio FastMCP server — AI Agent 编曲/表现力/渲染工具集"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements-mcp.txt"]}

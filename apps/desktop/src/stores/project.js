@@ -21,7 +21,8 @@ export const store = reactive({
   path: null,
   selection: { noteIds: [], trackId: null },
   viewport: { tickX: 0, keyY: 72, tickZoom: 0.5, keyZoom: 14 }, // px/tick, px/半音
-  transport: { playing: false, tick: 0, ms: 0, metronome: false, state: 'idle', pending: 0, error: '' },
+  transport: { playing: false, tick: 0, ms: 0, metronome: false, state: 'idle', pending: 0, error: '', native_session_id: null, output: 'browser', device_output_id: null, output_device_id: '', output_sample_rate: null },
+  audition: { block_frames: 2048, target_blocks: 4 },
   engine: { synth_state: 'idle', phrases_done: 0, phrases_total: 0 },
   activeParam: 'pitch',
   status: '',

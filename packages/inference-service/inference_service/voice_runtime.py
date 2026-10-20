@@ -42,12 +42,24 @@ def _speaker_tables(pred: Any) -> dict[str, dict[str, Any]]:
 
 def _copy_with_speaker(pred: Any, alias: str, embedding: np.ndarray) -> Any:
     clone = copy.copy(pred)
-    for name in _COMPONENTS:
+    stages = (
+        ("dsdur", "pred_duration", "dsdur"),
+        ("dspitch", "pred_pitch", "dspitch"),
+        ("dsvariance", "pred_variance", "dsvariance"),
+        ("dsacoustic", "pred_acoustic", "ds_acoustic"),
+    )
+    for name, stage_name, reader_attribute in stages:
         component = copy.copy(getattr(pred, name))
         speakers = list(getattr(component, "speakers", None) or [])
         speakers.append(_SpeakerEmbedding(alias, embedding))
         component.speakers = speakers
         setattr(clone, name, component)
+        stage = copy.copy(getattr(pred, stage_name))
+        setattr(stage, reader_attribute, component)
+        if name != "dsacoustic":
+            stage.input_processor = copy.copy(stage.input_processor)
+            stage.input_processor.vb_reader = component
+        setattr(clone, stage_name, stage)
     clone.available_speakers = list(getattr(pred, "available_speakers", []) or []) + [alias]
     return clone
 
@@ -57,8 +69,8 @@ def prepare_speaker(pred: Any, settings: dict[str, Any] | None) -> tuple[Any, st
 
     settings accepts either {speaker_id: name} or {blend:[{speaker_id,weight}, ...]}.
     Blend embeddings require each speaker in all four predictor component maps with equal
-    vector shapes; blend construction modifies only shallow component copies and leaves ONNX
-    sessions and original predictor speaker lists untouched. Emotion parameters are rejected.
+    vector shapes; blend construction copies readers, consuming predictors and input
+    processors, sharing ONNX sessions without modifying cached speaker lists. Emotion is rejected.
     """
     settings = settings or {}
     if not isinstance(settings, dict):

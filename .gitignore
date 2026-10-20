@@ -17,6 +17,7 @@ config/llm.json
 **/.pytest_cache/
 *.py[cod]
 *.egg-info/
+/build/
 /apps/desktop/src-tauri/runtime/
 /apps/desktop/src-tauri/python/
 /apps/desktop/src-tauri/desktop-dist/
@@ -33,6 +34,7 @@ config/llm.json
 **/models/
 **/voicebanks/
 **/cache_pcm/
+/plugins/
 *.onnx
 *.pth
 *.pt

@@ -1,0 +1,4 @@
+# Frozen CPU desktop worker. Third-party models/plugins are not bundled.
+-r requirements.txt
+-r requirements-vst.txt
+pyinstaller>=6,<7

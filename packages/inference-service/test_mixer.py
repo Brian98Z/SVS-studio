@@ -130,3 +130,40 @@ def test_bus_pan_applies_equal_power_stereo_balance():
                      {"master": {}, "buses": [{"id": "panned", "pan": 1}]})
     assert np.all(out[:, 0] == 0)
     assert np.allclose(out[:, 1], 1 / np.sqrt(2))
+
+
+def test_disabled_vst_is_validated_but_never_loaded(monkeypatch):
+    import inference_service.vst_host as host
+    monkeypatch.setattr(host,'process_effect',lambda *args,**kwargs: pytest.fail('disabled VST loaded'))
+    effect={'type':'vst3','enabled':False,'path':'plugins/missing.vst3','parameters':{'mode':'clean'}}
+    assert np.array_equal(process_effects(np.ones((4,2),np.float32),[effect],24000),np.ones((4,2),np.float32))
+    with pytest.raises(ValueError): validate_config({'master':{'effects':[{**effect,'path':'../outside.vst3'}]}})
+
+def test_mix_route_reports_plugin_failure_as_error_not_flask_500(monkeypatch):
+    import base64
+    from flask import Flask
+    import inference_service.vst_host as host
+    from inference_service.mixer import register_routes
+    app=Flask(__name__);register_routes(app)
+    def fail(*args,**kwargs): raise host.VSTHostError('worker crashed')
+    monkeypatch.setattr(host,'process_effect',fail)
+    response=app.test_client().post('/mix',json={'sample_rate':24000,'tracks':[{'audio':base64.b64encode(np.zeros(4,dtype='<f4').tobytes()).decode(),'fx':[{'type':'vst3','enabled':True,'path':'plugins/failing.vst3'}]}]})
+    assert response.status_code==422 and response.json['error']=='VST_PROCESSING_ERROR'
+
+
+def test_dragonfly_saved_parameter_overrides_reach_mixed_audio():
+    """Opt-in native regression: SVS_TEST_DRAGONFLY points at trusted EarlyReflections."""
+    import os
+    from inference_service import vst_host
+    path = os.environ.get('SVS_TEST_DRAGONFLY')
+    if not path:
+        pytest.skip('set SVS_TEST_DRAGONFLY to exercise the real native plugin')
+    plugin = vst_host.open_effect(path)
+    state = vst_host.capture_plugin_state(plugin)
+    impulse = np.zeros((2048, 2), np.float32)
+    impulse[0] = .25
+    effect = {'type': 'vst3', 'enabled': True, 'path': path, 'state_base64': state,
+              'parameters': {'dry_level': 25, 'wet_level': 0}}
+    mixed = process_effects(impulse, [effect], 48000)
+    expected = impulse * .25
+    np.testing.assert_allclose(mixed, expected, atol=1e-7)

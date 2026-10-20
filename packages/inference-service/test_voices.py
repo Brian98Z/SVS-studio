@@ -2,6 +2,7 @@
 import json
 
 import pytest
+import yaml
 
 from inference_service import voices
 
@@ -41,3 +42,92 @@ def test_invalid_blend_weights_rejected():
     for weights in ([float("nan")], [0], [-0.1], [1.1], [0.2]):
         with pytest.raises(ValueError):
             voices.validate_speaker_blend(["voice.unknown"], weights)
+
+@pytest.fixture
+def vocoder_pair(tmp_path, monkeypatch):
+    bank, vocoder = tmp_path / 'bank', tmp_path / 'vocoder'
+    bank.mkdir()
+    vocoder.mkdir()
+    settings = dict(sample_rate=44100, hop_size=512, win_size=2048, fft_size=2048,
+                    num_mel_bins=128, mel_fmin=40, mel_fmax=16000, mel_base='e', mel_scale='slaney')
+    (bank / 'dsconfig.yaml').write_text(yaml.safe_dump({**settings, 'vocoder': 'selected', 'acoustic': 'missing.onnx'}))
+    (vocoder / 'vocoder.yaml').write_text(yaml.safe_dump({**settings, 'name': 'selected', 'model': 'selected.onnx'}))
+    (vocoder / 'selected.onnx').write_bytes(b'not executed by metadata validation')
+    monkeypatch.setenv('SVS_VOICE_REGISTRY', str(tmp_path / 'registry.json'))
+    app = __import__('flask').Flask(__name__)
+    voices.register_routes(app)
+    descriptor = voices.register_voice(str(bank))
+    return bank, vocoder, app.test_client(), descriptor['id']
+
+
+def test_vocoder_binding_survives_reregistration_and_clear_keeps_assets(vocoder_pair):
+    bank, vocoder, client, voice_id = vocoder_pair
+    endpoint = f'/voices/{voice_id}/vocoder'
+    assert client.patch(endpoint, json={'path': str(vocoder)}).status_code == 400
+    response = client.patch(endpoint, json={'path': str(vocoder), 'acknowledged_license': True})
+    assert response.status_code == 200
+    assert response.json['vocoder']['source'] == 'external'
+    assert response.json['vocoder']['compatible']
+    # A compatible vocoder alone cannot make a missing acoustic model ready.
+    assert not response.json['inference_ready']
+    assert voices.register_voice(str(bank))['vocoder_path'] == str(vocoder.resolve())
+    cleared = client.patch(endpoint, json={'path': None})
+    assert cleared.status_code == 200
+    assert cleared.json['vocoder_path'] is None
+    assert cleared.json['vocoder']['source'] == 'missing'
+    assert (vocoder / 'selected.onnx').is_file()
+    assert not (bank / 'dsvocoder').exists()
+
+
+@pytest.mark.parametrize('change', ['missing_reference', 'wrong_hop', 'escape', 'boolean_rate'])
+def test_incompatible_vocoder_refusal_keeps_binding(vocoder_pair, change):
+    bank, vocoder, client, voice_id = vocoder_pair
+    endpoint = f'/voices/{voice_id}/vocoder'
+    payload = {'path': str(vocoder), 'acknowledged_license': True}
+    assert client.patch(endpoint, json=payload).status_code == 200
+    registry_before = voices._config_path().read_bytes()
+    path = vocoder / 'vocoder.yaml'
+    cfg = yaml.safe_load(path.read_text())
+    if change == 'missing_reference':
+        cfg['model'] = 'missing.onnx'  # An unrelated ONNX still exists.
+    elif change == 'wrong_hop':
+        cfg['hop_size'] = 256
+    elif change == 'escape':
+        cfg['model'] = '../outside.onnx'
+        (vocoder.parent / 'outside.onnx').write_bytes(b'outside')
+    else:
+        cfg['sample_rate'] = True
+    path.write_text(yaml.safe_dump(cfg))
+    assert client.patch(endpoint, json=payload).status_code == 400
+    assert voices._config_path().read_bytes() == registry_before
+    assert not voices.resolve_voice(voice_id)['vocoder']['compatible']
+
+
+@pytest.mark.parametrize('body', [{}, [], {'path': ''}, {'path': 7}])
+def test_invalid_vocoder_request_never_clears_binding(vocoder_pair, body):
+    bank, vocoder, client, voice_id = vocoder_pair
+    endpoint = f'/voices/{voice_id}/vocoder'
+    assert client.patch(endpoint, json={'path': str(vocoder), 'acknowledged_license': True}).status_code == 200
+    before = voices._config_path().read_bytes()
+    assert client.patch(endpoint, json=body).status_code == 400
+    assert client.patch(endpoint, data='{}', content_type='text/plain').status_code == 400
+    assert voices._config_path().read_bytes() == before
+
+
+def test_asset_revision_rejects_old_memory_and_disk_audio(tmp_path, monkeypatch):
+    import numpy as np
+    from inference_service import cache_manager
+    monkeypatch.setattr(cache_manager, 'DISK_DIR', tmp_path)
+    cache = cache_manager.AudioCache()
+    audio = np.asarray([.2, -.1, .3], dtype=np.float32)
+    cache.put('phrase', audio, revision='vocoder-a')
+    np.testing.assert_array_equal(cache.get('phrase', revision='vocoder-a'), audio)
+    assert cache.get('phrase', revision='vocoder-b') is None
+    restarted = cache_manager.AudioCache()
+    assert restarted.get('phrase', revision='vocoder-b') is None
+    np.testing.assert_array_equal(restarted.get('phrase', revision='vocoder-a'), audio)
+    replacement = -audio
+    restarted.put('phrase', replacement, revision='vocoder-b')
+    assert restarted.get('phrase', revision='vocoder-a') is None
+    np.testing.assert_array_equal(restarted.get('phrase', revision='vocoder-b'), replacement)
+    assert restarted.invalidate(['phrase']) == 1  # Public request hash is retained.

@@ -92,18 +92,25 @@ def _segment_events(events, spq, max_seconds=18.0):
 def render_track(notes, tempos, hash_key: str, key_shift: int = 0, curves=None, offset_ticks: int = 0, singer='diffsinger.qixuan', voice=None):
     """Render native model conditioning, rejecting controls absent from the voicebank."""
     import yaml
-    from .native_pipeline import decode_layers, validate_controls, render_sections
+    from .native_pipeline import decode_layers, validate_controls, render_sections, _voicebank_signature
     from pathlib import Path
     from .voices import resolve_voice
+    import hashlib
     descriptor = resolve_voice(singer)
     if descriptor is None or descriptor.get('family') != 'DiffSinger' or not descriptor.get('path'):
         raise ValueError(f'No available DiffSinger voice directory registered for {singer}')
+    if not descriptor.get('prerequisites', {}).get('diffsinger_topology_complete'):
+        raise ValueError('DiffSinger model/vocoder prerequisites are incomplete or incompatible')
     voicebank = Path(descriptor['path'])
+    vocoder_path = descriptor.get('vocoder_path')
+    cache_key = hashlib.sha256(repr((hash_key, str(voicebank.resolve()), vocoder_path,
+                                     _voicebank_signature(voicebank),
+                                     _voicebank_signature(vocoder_path) if vocoder_path else ())).encode('utf-8')).hexdigest()
     decoded = decode_layers(curves)
     config = yaml.safe_load((voicebank / 'dsconfig.yaml').read_text(encoding='utf-8'))
     validate_controls(decoded, config)
     cache = _get_cache()
-    cached = cache.get(hash_key)
+    cached = cache.get(hash_key, revision=cache_key)
     if cached is not None:
         return cached, True
 
@@ -193,7 +200,8 @@ def render_track(notes, tempos, hash_key: str, key_shift: int = 0, curves=None, 
     if preference is None:
         # Keep the legacy explicit CUDA opt-in; otherwise auto proves a usable provider.
         preference = "cuda" if os.environ.get("SVS_INFERENCE_GPU") == "1" else "auto"
-    wav, sr_out = render_sections(a2v, ds_sections, voicebank, decoded, tempos, lead_rest_sec, preference, voice or {})
+    wav, sr_out = render_sections(a2v, ds_sections, voicebank, decoded, tempos, lead_rest_sec, preference,
+                                 voice or {}, vocoder_path=vocoder_path)
     elapsed = time.perf_counter() - t0
     pcm = _resample_to(wav, sr_out, TARGET_SR)
     pcm = pcm[round(lead_rest_sec * TARGET_SR):]
@@ -204,11 +212,15 @@ def render_track(notes, tempos, hash_key: str, key_shift: int = 0, curves=None, 
         pcm *= 0.99 / peak
     print(f"[render_ds] 分段渲染 {len(ds_sections)} 段 耗时 {elapsed:.1f}s → {len(pcm)/TARGET_SR:.1f}s 音频", flush=True)
 
-    cache.put(hash_key, pcm)
+    cache.put(hash_key, pcm, revision=cache_key)
     return pcm, False
 
 
 def _get_cache():
-    # 延迟 import 避免循环依赖
+    # A -m launch names the running service __main__; importing it again would
+    # create a second cache invisible to /invalidate and /health.
+    running = sys.modules.get('__main__')
+    if getattr(getattr(running, '__spec__', None), 'name', None) == 'inference_service.service_runner':
+        return running.cache
     from .service_runner import cache
     return cache

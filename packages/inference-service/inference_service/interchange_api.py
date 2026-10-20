@@ -17,10 +17,20 @@ def _bridge():
 
 def register_routes(app):
     from flask import jsonify, request
+    from .project_sync import SyncError, interchange_sync, register_routes as register_sync
+
+    register_sync(app)
+
     @app.post('/interchange')
     def convert():
         try:
-            body = request.get_json(force=True)
-            return jsonify({'ok': True, **_bridge().dispatch(body)})
+            if request.is_json:
+                body = request.get_json(force=False)
+                if isinstance(body, dict) and body.get('action') in ('sync_push', 'sync_pull'):
+                    return jsonify(interchange_sync(body))
+                return jsonify({'ok': True, **_bridge().dispatch(body)})
+            return jsonify({'error': 'SYNC_ERROR', 'detail': 'Content-Type must be application/json'}), 415
+        except SyncError as exc:
+            return jsonify({'error': 'SYNC_ERROR', 'detail': str(exc)}), exc.status
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
             return jsonify({'error': 'INTERCHANGE_FAILED', 'detail': str(exc)}), 422

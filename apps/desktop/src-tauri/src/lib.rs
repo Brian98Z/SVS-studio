@@ -50,6 +50,11 @@ fn start_server(app: &tauri::AppHandle) -> Result<Child, String> {
     }
 
     let mut command = Command::new(&executable);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW: sidecar has no console UI.
+    }
     command.current_dir(executable.parent().unwrap_or_else(|| std::path::Path::new(".")))
         .env("SVS_DESKTOP_MODE", "1")
         .env("PYTHONUTF8", "1")
@@ -87,7 +92,9 @@ fn wait_for_server(child: &mut Child) -> Result<(), String> {
 fn stop_child_tree(child: &mut Child) {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let status = Command::new("taskkill")
+            .creation_flags(0x08000000)
             .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

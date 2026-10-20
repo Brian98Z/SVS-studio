@@ -63,7 +63,7 @@ class G2P:
                 raise G2PError(f"No English pronunciation for {word!r}")
             from g2p_en import G2p
         except ImportError as exc:
-            raise G2PError("English conversion requires g2p-en and cmudict; install packages/g2p-engine/requirements.txt") from exc
+            raise G2PError("English conversion requires g2p-en and cmudict; install from repository-root requirements-g2p.txt") from exc
         if self._english is None:
             self._english = G2p()
         return [p.lower() for p in self._english(word) if p.strip() and p != " "]
@@ -72,7 +72,7 @@ class G2P:
         try:
             import pykakasi
         except ImportError as exc:
-            raise G2PError("Japanese conversion requires pykakasi; install packages/g2p-engine/requirements.txt") from exc
+            raise G2PError("Japanese conversion requires pykakasi; install from repository-root requirements-g2p.txt") from exc
         if self._kakasi is None:
             self._kakasi = pykakasi.kakasi()
         romaji = "".join(item["hepburn"] for item in self._kakasi.convert(text))
@@ -93,7 +93,7 @@ class G2P:
         try:
             from pycantonese import characters_to_jyutping
         except ImportError as exc:
-            raise G2PError("Cantonese conversion requires pycantonese; install packages/g2p-engine/requirements.txt") from exc
+            raise G2PError("Cantonese conversion requires pycantonese; install from repository-root requirements-g2p.txt") from exc
         initials = ("gw", "kw", "ng", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "w", "z", "c", "s", "j")
         out: list[str] = []
         for word, syllables in characters_to_jyutping(text):
@@ -117,7 +117,7 @@ class G2P:
             from g2pk import G2p as KoreanG2p
             from jamo import h2j
         except ImportError as exc:
-            raise G2PError("Korean conversion requires g2pk and jamo; install packages/g2p-engine/requirements.txt") from exc
+            raise G2PError("Korean conversion requires g2pk and jamo; install from repository-root requirements-g2p.txt") from exc
         if self._korean is None:
             self._korean = KoreanG2p()
         normalized = self._korean(text)

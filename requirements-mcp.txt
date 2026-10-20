@@ -1,0 +1,3 @@
+# Canonical MCP dependencies; consumed by root pyproject.toml.
+fastmcp>=2.0,<5
+httpx>=0.27,<1

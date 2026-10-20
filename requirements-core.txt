@@ -1,0 +1,9 @@
+# Shared Python runtime, without choosing CPU or GPU ONNX Runtime.
+# Python 3.11 is the verified development interpreter.
+Flask>=3.0,<4
+numpy>=1.26,<3
+scipy>=1.11,<2
+soundfile>=0.12,<1
+PyYAML>=6.0,<7
+librosa>=0.10,<1
+pypinyin>=0.53,<1

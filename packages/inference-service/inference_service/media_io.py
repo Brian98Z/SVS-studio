@@ -133,7 +133,7 @@ def export_aaf(project: Mapping[str, Any], output_path: str, stems: Sequence[Map
     """Write valid AAF with PCM essence and a composition containing timed source clips."""
     clips=_export_clips(project,stems)
     try: import aaf2
-    except ImportError as exc: raise MediaError("AAF export requires pyaaf2; install requirements-media.txt") from exc
+    except ImportError as exc: raise MediaError("AAF export requires pyaaf2; install from repository-root requirements-media.txt") from exc
     dest=_new_output(output_path,{".aaf"}); ppq=int(project.get("ppq",0)); tempos=project.get("tempos",[])
     clips=_export_clips(project,stems)
     if not clips: raise MediaError("AAF export needs at least one audio clip")

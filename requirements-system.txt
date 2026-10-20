@@ -1,0 +1,13 @@
+# NON-PIP dependency inventory. Do not pass this file to pip.
+# Rust backend/core/CLI: Rust stable MSVC, MSVC C++ build tools; Cargo.toml + Cargo.lock.
+# Desktop native: apps/desktop/src-tauri/Cargo.toml + Cargo.lock; WebView2 Runtime.
+# Frontend: Node.js >=18 (Vite 6 requires supported 18/20/22+), npm;
+# install with npm ci --prefix apps/desktop (package.json + package-lock.json).
+# Media decode/probe/mux: FFmpeg and ffprobe executables on PATH.
+# Python: 3.11 verified; profile-specific upstream versions may narrow support.
+# GPU: compatible NVIDIA driver and CUDA/cuDNN DLLs for selected Torch/ORT wheels.
+# External source bridge: abc2diffsinger/abc2vocals.py via SVS_ABC2VOCALS_DIR.
+# Licensed DiffSinger voicebank/models via SVS_VOICEBANK; no weights auto-installed.
+# Basic Pitch/Demucs pretrained assets must be provisioned and license-reviewed separately.
+# VST3: explicit trusted x64 binary/bundle; no auto-download or bundled third-party plugin.
+# Cloud credentials/endpoints and AI chat configuration are operator supplied, not dependencies pip can install.

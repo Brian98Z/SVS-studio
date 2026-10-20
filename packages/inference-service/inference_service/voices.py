@@ -9,12 +9,15 @@ import json
 import os
 import math
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
 from flask import jsonify, request
 
 from . import config
+
+_REGISTRY_LOCK = threading.RLock()
 
 
 def _config_path() -> Path:
@@ -53,7 +56,7 @@ def _identity(path: Path) -> str:
     return "voice." + hashlib.sha256(os.path.normcase(str(path.resolve())).encode("utf-8")).hexdigest()[:20]
 
 
-def inspect_voice(path_value: str, name: str | None = None) -> dict[str, Any]:
+def inspect_voice(path_value: str, name: str | None = None, vocoder_path: str | None = None) -> dict[str, Any]:
     path = Path(path_value).expanduser().resolve()
     if not path.is_dir():
         raise ValueError("Voicebank directory does not exist or is not a directory")
@@ -101,23 +104,38 @@ def inspect_voice(path_value: str, name: str | None = None) -> dict[str, Any]:
     model_files = exts.get(".onnx", []) + exts.get(".pth", []) + exts.get(".pt", []) + exts.get(".ckpt", []) + exts.get(".safetensors", [])
     advertised: set[str] = set()
     family = "DiffSinger" if is_diffsinger else (str(flat.get("model_type", flat.get("model", "unknown"))) if model_files else "metadata-only")
-    ds_required = ["dsconfig.yaml", "dsdur/dsdict-zh.yaml", "dspitch/dsconfig.yaml",
-                   "dsvariance/dsconfig.yaml", "dsvocoder/vocoder.yaml"]
+    ds_required = ["dsconfig.yaml", "dsdur/dsdict-zh.yaml", "dspitch/dsconfig.yaml", "dsvariance/dsconfig.yaml"]
     ds_missing = [relpath for relpath in ds_required if not (path / relpath).is_file()]
+    from .vocoder_binding import inspect_vocoder
+    vocoder = inspect_vocoder(path, vocoder_path)
+    if not vocoder["compatible"]:
+        ds_missing.extend(vocoder["missing_files"])
+    ds_missing = list(dict.fromkeys(ds_missing))
     if is_diffsinger:
-        for component in ("dsdur", "dspitch", "dsvariance"):
-            if not any(p.is_file() and p.suffix.casefold() == ".onnx" for p in (path / component).glob("*.onnx")):
-                ds_missing.append(f"{component}/*.onnx")
-        top_config = path / "dsconfig.yaml"
         try:
-            top_text = top_config.read_text(encoding="utf-8", errors="replace")
-            acoustic = re.search(r"(?m)^acoustic:\s*(.+?)\s*$", top_text)
-            if acoustic and not (path / acoustic.group(1).strip()).is_file():
-                ds_missing.append(acoustic.group(1).strip())
-        except OSError:
-            pass
-        if not any(p.is_file() and p.suffix.casefold() == ".onnx" for p in (path / "dsvocoder").glob("*.onnx")):
-            ds_missing.append("dsvocoder/*.onnx")
+            import yaml
+            acoustic = yaml.safe_load((path / "dsconfig.yaml").read_text(encoding="utf-8")) or {}
+            acoustic_ref = acoustic.get("acoustic")
+            if not isinstance(acoustic_ref, str) or not acoustic_ref:
+                ds_missing.append("dsconfig.yaml:acoustic")
+            elif not (path / acoustic_ref).is_file():
+                ds_missing.append(acoustic_ref)
+        except Exception as exc:
+            ds_missing.append(f"dsconfig.yaml:{type(exc).__name__}")
+        for component in ("dsdur", "dspitch", "dsvariance"):
+            try:
+                import yaml
+                cfgpath = path / component / "dsconfig.yaml"
+                cfg = yaml.safe_load(cfgpath.read_text(encoding="utf-8")) or {}
+                for key in ("linguistic", {"dsdur": "dur", "dspitch": "pitch", "dsvariance": "variance"}[component]):
+                    ref = cfg.get(key)
+                    if not isinstance(ref, str) or not ref:
+                        ds_missing.append(f"{component}/dsconfig.yaml:{key}")
+                    elif not (cfgpath.parent / ref).is_file():
+                        ds_missing.append(f"{component}/{ref}")
+            except Exception as exc:
+                ds_missing.append(f"{component}/dsconfig.yaml:{type(exc).__name__}")
+    ds_missing = list(dict.fromkeys(ds_missing))
     if is_diffsinger:
         advertised.add("diffsinger_native")
     ds_config_text = ""
@@ -147,12 +165,12 @@ def inspect_voice(path_value: str, name: str | None = None) -> dict[str, Any]:
     vits_hint = "vits" in family.casefold() or any("vits" in x.casefold() for x in exts.get(".onnx", []))
     staged_runtime = (config.ABC2VOCALS_DIR / 'abc2vocals.py').is_file() and config.GPU_PYTHON.is_file()
     prerequisites = {"directory_readable": os.access(path, os.R_OK), "model_files_found": bool(model_files),
-                     "diffsinger_topology_complete": not ds_missing if is_diffsinger else False,
+                     "diffsinger_topology_complete": bool(is_diffsinger and not ds_missing and vocoder["compatible"]),
                      "diffsinger_missing_files": ds_missing if is_diffsinger else [],
                      "native_runtime_staged": staged_runtime if is_diffsinger else False,
                      "vits_model_hint": vits_hint,
                      "vits_adapter": {"available": False, "reason": "No verified model-specific VITS inference adapter is implemented."}}
-    ready = bool(is_diffsinger and not ds_missing and staged_runtime)
+    ready = bool(prerequisites["diffsinger_topology_complete"] and staged_runtime)
     return {
         "id": _identity(path), "name": name or str(flat.get("name", path.name)),
         "path": str(path), "family": family, "registered": False,
@@ -161,7 +179,10 @@ def inspect_voice(path_value: str, name: str | None = None) -> dict[str, Any]:
         "speakers": speakers, "capabilities": sorted(advertised), "licenses": licenses,
         "license_status": "declared" if licenses else "unknown",
         "prerequisites": prerequisites, "inference_ready": ready,
+        "vocoder_path": str(Path(vocoder_path).expanduser().resolve()) if vocoder_path else None,
+        "vocoder": vocoder,
     }
+
 
 
 def resolve_voice(voice_id: str) -> dict[str, Any] | None:
@@ -185,7 +206,7 @@ def resolve_voice(voice_id: str) -> dict[str, Any] | None:
     if not entry:
         return None
     try:
-        refreshed = inspect_voice(entry["path"], entry.get("name"))
+        refreshed = inspect_voice(entry["path"], entry.get("name"), entry.get("vocoder_path"))
         refreshed["registered"] = True
         return refreshed
     except (ValueError, OSError, KeyError):
@@ -213,6 +234,20 @@ def validate_speaker_blend(voice_ids: list[str], weights: list[float]) -> dict[s
     return dict(zip(voice_ids, map(float, weights)))
 
 
+def register_voice(path: str, name: str | None = None) -> dict[str, Any]:
+    voice = inspect_voice(path, name)
+    with _REGISTRY_LOCK:
+        entries = _load()
+        previous = next((entry for entry in entries if entry.get("id") == voice["id"]), None)
+        if previous and previous.get("vocoder_path"):
+            voice = inspect_voice(path, name or previous.get("name"), previous["vocoder_path"])
+        entries = [v for v in entries if v.get("id") != voice["id"]]
+        entries.append({"id": voice["id"], "name": voice["name"], "path": voice["path"], "vocoder_path": voice["vocoder_path"]})
+        _save(entries)
+    voice["registered"] = True
+    return voice
+
+
 def register_routes(app) -> None:
     @app.get("/voices")
     def list_voices():
@@ -235,21 +270,41 @@ def register_routes(app) -> None:
     def register_route():
         body = request.get_json(force=True, silent=True) or {}
         try:
-            voice = inspect_voice(body.get("path", ""), body.get("name"))
+            voice = register_voice(body.get("path", ""), body.get("name"))
         except ValueError as e:
             return jsonify({"error": "BAD_REQUEST", "detail": str(e)}), 400
-        entries = _load()
-        voice["registered"] = True
-        entries = [v for v in entries if v.get("id") != voice["id"]]
-        entries.append({"id": voice["id"], "name": voice["name"], "path": voice["path"]})
-        _save(entries)
         return jsonify(voice), 201
+
+    @app.patch("/voices/<voice_id>/vocoder")
+    def bind_vocoder_route(voice_id):
+        body = request.get_json(force=False, silent=True)
+        if not isinstance(body, dict) or "path" not in body:
+            return jsonify({"error": "BAD_REQUEST", "detail": "Expected JSON object with path (string or null)."}), 400
+        path_value = body["path"]
+        if path_value is not None and (not isinstance(path_value, str) or not path_value.strip()):
+            return jsonify({"error": "BAD_REQUEST", "detail": "path must be a non-empty string or null."}), 400
+        if path_value is not None and body.get("acknowledged_license") is not True:
+            return jsonify({"error": "BAD_REQUEST", "detail": "Acknowledge that vocoder licensing is independent; this does not grant permission."}), 400
+        with _REGISTRY_LOCK:
+            entries = _load()
+            entry = next((item for item in entries if item.get("id") == voice_id), None)
+            if entry is None:
+                return jsonify({"error": "NOT_FOUND", "detail": "Voice is not registered"}), 404
+            try:
+                from .vocoder_binding import validate_binding
+                validated = validate_binding(Path(entry["path"]), path_value) if path_value is not None else None
+            except (ValueError, OSError) as exc:
+                return jsonify({"error": "BAD_REQUEST", "detail": str(exc)}), 400
+            entry["vocoder_path"] = str(validated) if validated else None
+            _save(entries)
+        return jsonify(resolve_voice(voice_id))
 
     @app.delete("/voices/<voice_id>")
     def remove_route(voice_id):
-        entries = _load()
-        kept = [v for v in entries if v.get("id") != voice_id]
-        if len(kept) == len(entries):
-            return jsonify({"error": "NOT_FOUND", "detail": "Voice is not registered"}), 404
-        _save(kept)
+        with _REGISTRY_LOCK:
+            entries = _load()
+            kept = [v for v in entries if v.get("id") != voice_id]
+            if len(kept) == len(entries):
+                return jsonify({"error": "NOT_FOUND", "detail": "Voice is not registered"}), 404
+            _save(kept)
         return jsonify({"ok": True, "id": voice_id, "assets_deleted": False})

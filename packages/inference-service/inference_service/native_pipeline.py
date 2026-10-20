@@ -154,18 +154,19 @@ def predict_section(pred, section, decoded, tempos, lead_seconds, speaker=None):
     return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
-def render_sections(a2v, sections, voicebank, decoded, tempos, lead_seconds, device, voice=None):
+def render_sections(a2v, sections, voicebank, decoded, tempos, lead_seconds, device, voice=None, vocoder_path=None):
     """Render with one bounded predictor, serialized across HTTP worker threads."""
     global _PREDICTOR_CACHE
     from .hardware import setup_runtime, validate_preference
     from .voice_runtime import prepare_speaker
 
     preference = validate_preference(device)
-    signature = (str(Path(voicebank).resolve()), preference, _voicebank_signature(voicebank))
+    signature = (str(Path(voicebank).resolve()), str(Path(vocoder_path).resolve()) if vocoder_path else None,
+                 preference, _voicebank_signature(voicebank), _voicebank_signature(vocoder_path) if vocoder_path else ())
     with _PREDICTOR_LOCK:
         if _PREDICTOR_CACHE is None or _PREDICTOR_CACHE[0] != signature:
-            from diffsinger_utau.voice_bank import PredAll
-            pred = PredAll(voicebank)
+            from .vocoder_binding import build_predictor
+            pred = build_predictor(Path(voicebank), vocoder_path)
             report = setup_runtime(pred, preference=preference, a2v=a2v)
             _PREDICTOR_CACHE = (signature, pred, report)
         _, pred, report = _PREDICTOR_CACHE

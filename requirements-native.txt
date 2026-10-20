@@ -1,0 +1,16 @@
+# Standalone legacy CPU DiffSinger/ABC profile (Python 3.11).
+# NOT compatible with requirements.txt or requirements-gpu.txt: upstream
+# diffsinger-utau 0.3.8 metadata requires old ORT and torch versions.
+# abc2vocals.py checkout and licensed voicebank remain external, set SVS_ABC2VOCALS_DIR.
+# For the separate Windows CUDA build use scripts/setup_native_cuda.ps1, not this profile.
+-r requirements-core.txt
+numpy>=1.26,<2
+scipy>=1.11,<1.14
+onnxruntime>=1.16,<1.17
+torch>=2.0,<2.9
+diffsinger-utau==0.3.8
+music21>=9,<11
+pretty-midi>=0.2.9,<1
+ruamel.yaml>=0.17,<0.19
+onnx>=1.16,<1.17
+requests>=2.31,<3

@@ -1,0 +1,7 @@
+# CPU regression/development tools. Native-model tests additionally need native profile.
+-r requirements.txt
+-r requirements-g2p.txt
+-r requirements-media.txt
+-r requirements-vst.txt
+-r requirements-mcp.txt
+pytest>=8,<10

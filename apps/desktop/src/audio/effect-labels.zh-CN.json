@@ -1,0 +1,7 @@
+{
+  "effects": {"eq3":"三段均衡器","reverb":"混响","compressor":"压缩器","vst3":"VST3 插件（离线）"},
+  "groups": {"band":"频段","hp":"高通滤波器","lp":"低通滤波器","wide_band":"宽频段"},
+  "fields": {"selected":"选中","active":"启用","gain_db":"增益（dB）","q":"Q 值（带宽）","frequency_hz":"频率（Hz）","type":"滤波类型","dyn":"动态处理","threshold_db":"阈值（dB）","ratio":"压缩比","split":"独立动态处理","attack_ms":"启动时间（毫秒）","release_ms":"释放时间（毫秒）"},
+  "parameters": {"master_bypass":"总旁路","dynamic_delta":"仅监听动态处理差值","dry_mix":"干声混合比例","output_gain_db":"输出增益（dB）","eq_auto_gain":"均衡自动增益补偿","quality":"处理精度","channels":"声道模式","analyzer_mode":"频谱分析来源","display_eq_range":"均衡显示范围","display_fft_floor":"频谱显示底限（dB）","sidechain_mode":"侧链模式","analyzer_speed":"频谱响应速度","solo":"独听","program":"预设方案"},
+  "values": {"Low S":"低架式","Bell":"钟形","High S":"高架式","Off":"关闭","On":"开启","Sticky":"固定动态（忽略宽频段压缩）","Eco":"经济模式","Precise":"精确模式","Precise-":"精确模式－","Mono":"单声道","Stereo":"立体声","Sum":"中置（左右相加）","Diff":"侧置（左右差值）","Left":"左声道","Right":"右声道","Dual Mono":"双单声道","Analyzer: In":"分析：输入","Analyzer: Out":"分析：输出","Analyzer: SC":"分析：侧链","Analyzer: Off":"分析：关闭","Display: Hidden":"隐藏显示","Int SC":"内部侧链","Ext SC":"外部侧链","Int SC (Flat)":"内部侧链（平直）","Fast":"快速","Normal":"标准","Original":"原始","Default":"默认","Minimum":"最简","Wideband Dyn":"宽频动态","1 Band Dyn":"单频段动态","2 Band Dyn":"双频段动态","3 Band Dyn":"三频段动态","4 Band Dyn":"四频段动态","LF Density":"低频密度","Edge Density":"边缘密度","Mid Focus":"中频聚焦","HF Density":"高频密度","De-ess (split)":"齿音抑制（独立）","De-ess (linked)":"齿音抑制（联动）"}
+}

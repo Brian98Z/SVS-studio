@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { store, actions, api } from '../stores/project.js'
 import { uiPrompt, uiConfirm, uiSelect } from '../stores/ui.js'
 
@@ -7,6 +7,26 @@ defineProps({ connected: { type: Boolean, default: false } })
 
 import { computed } from 'vue'
 const bpm = computed(() => store.project.tempos?.[0]?.bpm ?? 120)
+const outputDevices = ref([])
+const loadingDevices = ref(false)
+const devicesError = ref('')
+async function refreshOutputDevices() {
+  loadingDevices.value = true
+  devicesError.value = ''
+  try {
+    const result = await api('GET', '/audio/output/devices')
+    outputDevices.value = result.devices
+    updateOutputDevice()
+  } catch (error) { devicesError.value = error.message }
+  finally { loadingDevices.value = false }
+}
+function updateOutputDevice() {
+  const selected = store.transport.output_device_id
+  const device = outputDevices.value.find(d => selected ? d.id === selected : d.is_default)
+  store.transport.output_sample_rate = device?.sample_rate || null
+  if (selected && !device) devicesError.value = '所选设备已不可用，请重新选择；不会自动切换输出。'
+}
+watch(() => store.transport.output, value => { if (value === 'device') refreshOutputDevices() })
 
 async function togglePlay() {
   const state = store.transport.state
@@ -141,10 +161,36 @@ async function doImportAbc(abc, name) {
     <button @click="openProject">打开</button>
     <button @click="saveProject">保存</button>
     <span class="sep" />
-    <button class="play" @click="togglePlay">{{ store.transport.state === 'buffering' ? 'Ⅱ 缓冲中（取消）' : store.transport.state === 'playing' ? '■ 停止' : '▶ 播放' }}</button>
+    <button class="play" @click="togglePlay" :disabled="store.transport.output === 'device' && loadingDevices">{{ store.transport.state === 'buffering' ? 'Ⅱ 缓冲中（取消）' : store.transport.state === 'playing' ? '■ 停止' : '▶ 播放' }}</button>
+    <select v-model="store.transport.output" :disabled="store.transport.playing" aria-label="试听输出" title="原生声卡在server本机发声，仍有分块与网络缓冲。">
+      <option value="browser">浏览器输出</option>
+      <option value="device">原生声卡输出</option>
+    </select>
+    <template v-if="store.transport.output === 'device'">
+      <select v-model="store.transport.output_device_id" @change="updateOutputDevice" :disabled="store.transport.playing || loadingDevices" aria-label="原生输出设备" class="output-device">
+        <option value="">系统默认设备</option>
+        <option v-if="store.transport.output_device_id && !outputDevices.some(d => d.id === store.transport.output_device_id)" :value="store.transport.output_device_id" disabled>所选设备已不可用</option>
+        <option v-for="device in outputDevices" :key="device.id + device.name" :value="device.id" :disabled="!device.selectable">{{ device.name }} · {{ device.sample_rate || '?' }}Hz{{ device.selectable ? '' : ' · 不支持' }}</option>
+      </select>
+      <button @click="refreshOutputDevices" :disabled="store.transport.playing || loadingDevices" title="刷新本机输出设备">{{ loadingDevices ? '读取中' : '刷新设备' }}</button>
+      <span v-if="devicesError" class="play-error" role="alert">{{ devicesError }}</span>
+    </template>
+    <label class="buffer-setting" title="原生VST及声卡路线的处理分块；越小请求越频繁，更容易欠载。浏览器无VST时不使用此设置。">分块
+      <select v-model.number="store.audition.block_frames" :disabled="store.transport.playing" aria-label="试听分块帧数">
+        <option :value="512">512帧</option><option :value="1024">1024帧</option><option :value="2048">2048帧</option><option :value="4096">4096帧</option>
+      </select>
+    </label>
+    <label class="buffer-setting" title="启动和欠载恢复所需的处理块数；不是设备驱动缓冲或端到端延迟。">预缓冲
+      <select v-model.number="store.audition.target_blocks" :disabled="store.transport.playing" aria-label="试听预缓冲块数">
+        <option :value="2">2块</option><option :value="4">4块</option>
+      </select>
+    </label>
+    <span v-if="store.audition.block_frames <= 1024" class="buffer-warning" role="status">小分块可能欠载；不稳时增大分块／预缓冲</span>
     <label class="master" title="主音量">主 <input type="range" min="0" max="1" step="0.01" :value="store.project.master_volume ?? 1" @input="setMasterVolume" @change="saveMasterVolume" /></label>
     <span v-if="store.transport.pending" class="pending">待合成 {{ store.transport.pending }}</span>
     <span v-if="store.transport.state === 'error'" class="play-error" :title="store.transport.error">试唱错误</span>
+    <span v-if="store.transport.native" class="native-status" :title="`持续隔离混音会话；处理 ${store.transport.native.processed_blocks || 0} 块，最近处理 ${Number(store.transport.native.processing_ms || 0).toFixed(1)} 毫秒。插件补偿为固定会话预算，旁路保留延迟；缓冲与补偿不是声卡端到端延迟。`">VST 缓冲 {{ Number(store.transport.native.latency_ms || 0).toFixed(0) }}ms · 补偿 {{ Number(store.transport.native.plugin_latency_ms || 0).toFixed(1) }}ms · 欠载 {{ store.transport.native.underruns || 0 }}</span>
+    <span v-if="store.transport.native?.output === 'device'" class="native-status" :title="store.transport.native.device">声卡队列 {{ Number(store.transport.native.device_queue_ms || 0).toFixed(0) }}ms · 声卡欠载 {{ store.transport.native.device_underruns || 0 }}</span>
     <label class="bpm">BPM <input v-model.number="bpm" type="number" min="20" max="300" step="1" disabled /></label>
     <span class="sep" />
     <button @click="actions.synth()" :disabled="store.engine.synth_state === 'rendering'"> ⟳ 合成</button>
@@ -156,13 +202,17 @@ async function doImportAbc(abc, name) {
 </template>
 
 <style scoped>
-.bar { height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
+.bar { min-height: 44px; flex-wrap: wrap; display: flex; align-items: center; gap: 6px; padding: 4px 10px;
   background: #1b1e24; border-bottom: 1px solid #2a2e35; }
 .logo { font-weight: 600; margin-right: 10px; color: #7cb2ff; }
 button { background: #262b33; color: #d8dce2; border: 1px solid #343a44; border-radius: 4px;
   padding: 5px 12px; cursor: pointer; font-size: 13px; }
 button:hover:not(:disabled) { background: #313742; }
 button:disabled { opacity: 0.5; cursor: default; }
+select { background: #14161a; color: #d8dce2; border: 1px solid #343a44; border-radius: 4px; padding: 5px; max-width: 128px; }
+.output-device { max-width: 260px; }
+.buffer-setting { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #9aa3ad; white-space: nowrap; }
+.buffer-warning { font-size: 11px; color: #e4b867; }
 .play { min-width: 84px; }
 .sep { width: 1px; height: 22px; background: #2a2e35; margin: 0 6px; }
 .bpm { font-size: 12px; color: #9aa3ad; }
@@ -170,6 +220,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .master, .pending, .play-error { font-size: 11px; color: #9aa3ad; white-space: nowrap; }
 .master input { width: 72px; vertical-align: middle; accent-color: #7cb2ff; }
 .play-error { color: #f87171; }
+.native-status{font-size:11px;color:#b8a9e8;white-space:nowrap;font-variant-numeric:tabular-nums}
 .conn { margin-left: auto; font-size: 12px; color: #6b7280; }
 .conn.ok { color: #4ade80; }
 </style>

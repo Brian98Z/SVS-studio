@@ -1,0 +1,17 @@
+# Windows x64 / Python 3.11 only. Keep separate from music-AI/CPU profiles.
+# First: python scripts/build_native_cuda.py
+# Runtime Python is byte-identical to upstream; explicit local version changes dependencies.
+--extra-index-url https://download.pytorch.org/whl/cu130
+--find-links build/native-cuda/wheels
+-r requirements-core.txt
+diffsinger-utau==0.3.8+svscuda1
+numpy==1.26.4
+scipy==1.13.1
+librosa==0.10.2.post1
+onnxruntime-gpu==1.31.0
+torch==2.11.0+cu130
+music21==9.9.1
+pretty-midi==0.2.11
+ruamel.yaml==0.18.17
+onnx==1.16.2
+requests>=2.31,<3

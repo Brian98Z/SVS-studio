@@ -1,0 +1,3 @@
+# Default CPU desktop runtime. Do not combine with requirements-gpu.txt.
+-r requirements-core.txt
+onnxruntime>=1.17,<2

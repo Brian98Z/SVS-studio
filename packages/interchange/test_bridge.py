@@ -49,6 +49,92 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(result["tracks"][0]["notes"][0]["tick"], 240)
         self.assertEqual(result["tracks"][0]["notes"][0]["lyric"], "你")
 
+    def test_bundle_restores_external_media_and_preserves_project(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            media = root / "outside" / "sample.wav"
+            media.parent.mkdir()
+            media.write_bytes(b"audio fixture bytes")
+            original = {"schema": 1, "name": "bundle", "ppq": 480, "sample_rate": 24000,
+                        "tempos": [{"tick": 0, "bpm": 120}], "time_signatures": [{"tick": 0, "numerator": 4, "denominator": 4}],
+                        "tracks": [{"id": "t1", "kind": "audio", "name": "Audio", "notes": [], "curves": {}, "fx": ["preserve"]}],
+                        "audio_clips": [{"id": "c1", "track_id": "t1", "path": str(media), "start_tick": 12, "gain": .5}],
+                        "mixer": {"master": {"effects": ["missing-plugin"]}}}
+            bundle = root / "score.svsbundle"
+            exported = dispatch({"action": "export_bundle", "path": str(bundle), "project": original})
+            restored = root / "restored"
+            imported = dispatch({"action": "import_bundle", "path": str(bundle), "destination": str(restored)})
+            self.assertEqual(exported["path"], str(bundle))
+            self.assertEqual(imported["project"]["name"], "bundle")
+            self.assertEqual(imported["project"]["tracks"], original["tracks"])
+            self.assertEqual(Path(imported["project"]["audio_clips"][0]["path"]).read_bytes(), media.read_bytes())
+            self.assertTrue(imported["warnings"])
+            self.assertEqual(original["audio_clips"][0]["path"], str(media))
+
+    def test_bundle_rejects_relative_source_without_base_and_tampering(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = {"schema": 1, "name": "Test", "sample_rate": 24000, "ppq": 480, "tempos": [{"tick": 0, "bpm": 120}], "time_signatures": [{"tick": 0, "numerator": 4, "denominator": 4}], "tracks": [], "audio_clips": [{"id": "c", "track_id": "t", "path": "../outside.wav", "start_tick": 0}]}
+            with self.assertRaises(ValueError):
+                dispatch({"action": "export_bundle", "path": str(root / "x.zip"), "project": project})
+
+    def test_bundle_tampering_and_existing_destination_do_not_publish(self):
+        import json
+        import tempfile
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            media = root / "sample.wav"
+            media.write_bytes(b"original media")
+            project = {"schema": 1, "name": "Test", "sample_rate": 24000, "ppq": 480, "tempos": [{"tick": 0, "bpm": 120}], "time_signatures": [{"tick": 0, "numerator": 4, "denominator": 4}], "tracks": [], "audio_clips": [{"id": "c", "track_id": "t", "path": str(media), "start_tick": 0}]}
+            bundle = root / "bundle.zip"
+            dispatch({"action": "export_bundle", "path": str(bundle), "project": project})
+            corrupt = root / "corrupt.zip"
+            with zipfile.ZipFile(bundle) as src, zipfile.ZipFile(corrupt, "w") as dst:
+                for name in src.namelist():
+                    data = src.read(name)
+                    if name.startswith("media/"):
+                        data = b"tampered"
+                    dst.writestr(name, data)
+            destination = root / "restore"
+            with self.assertRaises(ValueError):
+                dispatch({"action": "import_bundle", "path": str(corrupt), "destination": str(destination)})
+            self.assertFalse(destination.exists())
+            destination.mkdir()
+            with self.assertRaises(ValueError):
+                dispatch({"action": "import_bundle", "path": str(bundle), "destination": str(destination)})
+
+    def test_bundle_rejects_traversal_and_missing_media_payloads(self):
+        import json
+        import tempfile
+        import zipfile
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            media = root / "clip.wav"
+            media.write_bytes(b"RIFF security fixture")
+            project = {"schema": 1, "name": "Test", "sample_rate": 24000, "ppq": 480, "tempos": [{"tick": 0, "bpm": 120}], "time_signatures": [{"tick": 0, "numerator": 4, "denominator": 4}], "tracks": [], "audio_clips": [{"id": "c", "track_id": "t", "path": str(media), "start_tick": 0}]}
+            bundle = root / "ok.zip"
+            dispatch({"action": "export_bundle", "path": str(bundle), "project": project})
+            with zipfile.ZipFile(bundle) as src:
+                manifest = json.loads(src.read("manifest.json"))
+                project_data = json.loads(src.read("project.json"))
+                media_name = next(name for name in manifest["payloads"] if name.startswith("media/"))
+                for badpath in ("../escape", "media/" + "0" * 64 + ".wav"):
+                    project_data["audio_clips"][0]["path"] = badpath
+                    raw = json.dumps(project_data, ensure_ascii=False, indent=2).encode() + b"\n"
+                    manifest["payloads"]["project.json"] = {"size": len(raw), "sha256": sha256(raw).hexdigest()}
+                    altered = root / ("bad" + str(len(list(root.iterdir()))) + ".zip")
+                    with zipfile.ZipFile(altered, "w") as dst:
+                        dst.writestr("project.json", raw)
+                        dst.writestr("manifest.json", json.dumps(manifest))
+                        if badpath != "media/" + "0" * 64 + ".wav":
+                            dst.writestr(media_name, src.read(media_name))
+                    with self.assertRaises(ValueError):
+                        dispatch({"action": "import_bundle", "path": str(altered), "destination": str(root / (altered.stem + "-out"))})
+                    self.assertFalse((root / (altered.stem + "-out")).exists())
     def test_musicxml_fixture_rest_and_tie(self):
         xml = Path(__file__).with_name("fixtures").joinpath("score.musicxml").read_text(encoding="utf-8")
         result = dispatch({"action": "import_musicxml", "content": xml, "project": {"ppq": 480}})["project"]
