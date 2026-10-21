@@ -5,9 +5,27 @@ import math
 import multiprocessing as mp
 import queue
 import threading
+import time
 
 def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
+    # Frozen bootloaders can have already fixed the process DPI mode; the
+    # editor thread must still use the host's per-monitor-v2 context.
+    import sys
+    if sys.platform == "win32":
+        import ctypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        set_dpi = user32.SetProcessDpiAwarenessContext
+        set_dpi.argtypes = [ctypes.c_void_p]
+        set_dpi.restype = ctypes.c_int
+        if not set_dpi(ctypes.c_void_p(-4)) and ctypes.get_last_error() != 5:
+            raise OSError(ctypes.get_last_error(), "cannot initialize native worker DPI awareness")
+        set_thread_dpi = user32.SetThreadDpiAwarenessContext
+        set_thread_dpi.argtypes = [ctypes.c_void_p]
+        set_thread_dpi.restype = ctypes.c_void_p
+        if not set_thread_dpi(ctypes.c_void_p(-4)):
+            raise OSError(ctypes.get_last_error(), "cannot initialize editor thread DPI awareness")
     import numpy as np
+    from scipy.signal import lfilter
     from . import mixer as mixer_module
     from . import vst_host
     from .stream_delay import SampleDelay, route_delays
@@ -89,14 +107,14 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
                 b0, b1, b2 = (1-c)/2/d, (1-c)/d, (1-c)/2/d
             e, f = -2*c/d, (1-a)/d
             x1, x2, y1, y2 = self.filter_state.get((channel,key),(0.,0.,0.,0.))
-            y = np.empty_like(x)
-            for n, sample in enumerate(x):
-                sample = float(sample)
-                value = b0*sample+b1*x1+b2*x2-e*y1-f*y2
-                y[n] = value
-                x2,x1,y2,y1 = x1,sample,y1,value
-            self.filter_state[channel,key] = (x1,x2,y1,y2)
-            return y
+            if not len(x):
+                return np.empty_like(x)
+            # lfilter's transposed direct-form state corresponding to the
+            # same x1/x2/y1/y2 history used by the scalar recurrence.
+            zi = (b1*x1+b2*x2-e*y1-f*y2, b2*x1-f*y1)
+            y, _ = lfilter((b0,b1,b2), (1.,e,f), x, zi=zi)
+            self.filter_state[channel,key] = (float(x[-1]), x1 if len(x) < 2 else float(x[-2]), float(y[-1]), y1 if len(y) < 2 else float(y[-2]))
+            return y.astype(x.dtype, copy=False)
 
         def run(self, x):
             spec = self.spec
@@ -132,21 +150,32 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
                 wet = np.empty_like(x)
                 decay = .25 + .65*spec["room"]
                 for ch in range(2):
-                    ring = self.reverb[ch]; pos = self.pos[ch]
-                    for n in range(len(x)):
-                        delayed = ring[pos]
-                        ring[pos] = x[n,ch]+delayed*decay
-                        wet[n,ch] = delayed
-                        pos = (pos+1)%len(ring)
+                    ring = self.reverb[ch]
+                    pos = self.pos[ch]
+                    offset = 0
+                    while offset < len(x):
+                        count = min(len(x) - offset, len(ring) - pos)
+                        stop = offset + count
+                        delayed = ring[pos:pos + count].copy()
+                        wet[offset:stop, ch] = delayed
+                        # Compute feedback in double precision before the ring's
+                        # float32 store, matching the original scalar recurrence.
+                        ring[pos:pos + count] = x[offset:stop, ch] + delayed.astype(np.float64)*decay
+                        pos = (pos + count) % len(ring)
+                        offset = stop
                     self.pos[ch] = pos
                 return x*(1-spec["wet"])+wet*spec["wet"]*.35
             if self.kind == "compressor":
                 out=x.copy()
                 for n in range(len(out)):
-                    peak=float(np.max(np.abs(out[n])))
+                    left, right = float(out[n, 0]), float(out[n, 1])
+                    peak = max(abs(left), abs(right))
                     coef=self.attack if peak>self.env else self.release
                     self.env=coef*self.env+(1-coef)*peak
-                    if self.env>self.threshold: out[n]*=self.threshold*(self.env/self.threshold)**(1/spec["ratio"])/self.env
+                    if self.env>self.threshold:
+                        gain=self.threshold*(self.env/self.threshold)**(1/spec["ratio"])/self.env
+                        out[n, 0] *= gain
+                        out[n, 1] *= gain
                 return out
 
     class Chain:
@@ -202,15 +231,19 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
             send(acc, "track", tid, cfg, x)
         for bid in bus_order:
             cfg=bus_cfg[bid]
-            x=acc.get(bid,np.zeros((block_frames,2),np.float32))*cfg["volume"]
+            x=acc.get(bid)
+            if x is None: x=np.zeros((block_frames,2),np.float32)
+            x=x*cfg["volume"]
             x=mixer_module.pan_stereo(x,cfg["pan"])
             x=bus_fx[bid].run(x)
             send(acc, "bus", bid, cfg, x)
-        x=acc.get("master",np.zeros((block_frames,2),np.float32))*mixer["master"]["volume"]
+        x=acc.get("master")
+        if x is None: x=np.zeros((block_frames,2),np.float32)
+        x=x*mixer["master"]["volume"]
         return master_fx.run(x)
     editor_commands = queue.Queue()
     editor_lock = threading.RLock()
-    editor_result = {"state": "idle"}
+    editor_result = {"state": "idle", "revision": 0}
     shutdown = threading.Event()
 
 
@@ -226,7 +259,8 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
 
     def editor_snapshot():
         with editor_lock:
-            allowed = {"state", "kind", "id", "index", "path", "parameters", "state_base64", "error"}
+            allowed = {"state", "kind", "id", "index", "path", "parameters", "state_base64", "error",
+                       "worker_pid", "editor_hwnd", "editor_class", "revision"}
             return {key: value for key, value in editor_result.items() if key in allowed}
 
     def command_loop():
@@ -278,20 +312,31 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
                             if not already_open:
                                 path = effect.spec["path"]
                                 close_event = threading.Event()
+                                revision = editor_result.get("revision", 0) + 1
                                 editor_result.clear()
-                                editor_result.update(state="opening", kind=key[0], id=key[1], index=key[2], path=path, close_event=close_event)
-                                editor_commands.put((effect, close_event))
+                                editor_result.update(state="opening", kind=key[0], id=key[1], index=key[2], path=path,
+                                                     close_event=close_event, revision=revision, worker_pid=__import__("os").getpid())
+                                editor_commands.put((effect, close_event, revision))
                         if already_open:
                             conn.send((True, {"command_error": "EDITOR_ALREADY_OPEN"}))
                             continue
-                        conn.send((True, {"state": "opening", "kind": key[0], "id": key[1], "index": key[2], "path": path}))
+                        conn.send((True, editor_snapshot()))
                     except BaseException:
                         conn.send((True, {"command_error": "EDITOR_TARGET_NOT_FOUND"}))
                 elif op == "editor_status":
                     conn.send((True, editor_snapshot()))
                 elif op == "editor_close":
                     with editor_lock:
-                        if editor_result.get("state") == "opening": editor_result["close_event"].set()
+                        closing = editor_result.get("state") == "opening"
+                        if closing: editor_result["close_event"].set()
+                        revision = editor_result.get("revision")
+                    if closing:
+                        deadline = time.monotonic() + 3.0
+                        while time.monotonic() < deadline:
+                            with editor_lock:
+                                if editor_result.get("revision") != revision or editor_result.get("state") in {"completed", "failed"}:
+                                    break
+                            time.sleep(.02)
                     conn.send((True, editor_snapshot()))
                 else:
                     raise ValueError("unknown worker command")
@@ -306,24 +351,86 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
         finally:
             shutdown.set()
 
-    def run_editor(effect, close_event):
+    def run_editor(effect, close_event, revision):
+        import os
+        import sys
+        hwnds = []
+        stop_discovery = threading.Event()
+        finder = None
+        if sys.platform == "win32":
+            import ctypes
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            HWND = ctypes.c_void_p
+            DWORD = ctypes.c_ulong
+            BOOL = ctypes.c_int
+            user32.GetWindowThreadProcessId.argtypes = [HWND, ctypes.POINTER(DWORD)]
+            user32.GetWindowThreadProcessId.restype = DWORD
+            user32.IsWindowVisible.argtypes = [HWND]
+            user32.IsWindowVisible.restype = BOOL
+            user32.GetClassNameW.argtypes = [HWND, ctypes.POINTER(ctypes.c_wchar), ctypes.c_int]
+            user32.GetClassNameW.restype = ctypes.c_int
+            enum_proc = ctypes.WINFUNCTYPE(BOOL, HWND, ctypes.c_void_p)
+            user32.EnumWindows.argtypes = [enum_proc, ctypes.c_void_p]
+            user32.EnumWindows.restype = BOOL
+            @enum_proc
+            def collect(hwnd, _):
+                pid = DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value == os.getpid() and user32.IsWindowVisible(hwnd):
+                    name = ctypes.create_unicode_buffer(256)
+                    length = user32.GetClassNameW(hwnd, name, len(name))
+                    if length > 0 and name.value.startswith("JUCE_"):
+                        hwnds.append((int(hwnd), name.value))
+                return True
+            def discover():
+                deadline = time.monotonic() + 5
+                while not stop_discovery.is_set() and not close_event.is_set() and time.monotonic() < deadline:
+                    hwnds.clear()
+                    user32.EnumWindows(collect, None)
+                    with editor_lock:
+                        if hwnds and editor_result.get("revision") == revision:
+                            editor_result.update(editor_hwnd=hwnds[0][0], editor_class=hwnds[0][1])
+                    if hwnds: return
+                    stop_discovery.wait(.1)
+                if not stop_discovery.is_set() and not close_event.is_set():
+                    with editor_lock:
+                        if editor_result.get("revision") == revision and editor_result.get("state") == "opening":
+                            editor_result.update(state="failed", error="native plugin editor window was not found within five seconds")
+                            close_event.set()
+            finder = threading.Thread(target=discover, name="vst-editor-window-discovery", daemon=False)
+            finder.start()
         try:
-            # The native editor must run on this worker's main thread. Processing
-            # continues on command_loop's thread and never shares the pipe.
             effect.plugin.show_editor(close_event)
-            with plugin_lock:
-                parameters = vst_host.enumerate_parameters(effect.plugin)
-                state_base64 = vst_host.capture_plugin_state(effect.plugin)
-            result = {"state": "completed", "kind": editor_result["kind"], "id": editor_result["id"],
-                      "index": editor_result["index"], "path": editor_result["path"],
-                      "parameters": parameters, "state_base64": state_base64}
+            if finder:
+                finder.join(timeout=.2)
+            with editor_lock:
+                window_info = {key: editor_result.get(key) for key in ("editor_hwnd", "editor_class")}
+            if sys.platform == "win32" and not window_info.get("editor_hwnd"):
+                result = {"state": "failed", "kind": editor_result["kind"], "id": editor_result["id"],
+                          "index": editor_result["index"], "path": editor_result["path"],
+                          "error": "native plugin editor window was not found within five seconds", "revision": revision,
+                          "worker_pid": os.getpid()}
+            else:
+                with plugin_lock:
+                    parameters = vst_host.enumerate_parameters(effect.plugin)
+                    state_base64 = vst_host.capture_plugin_state(effect.plugin)
+                result = {"state": "completed", "kind": editor_result["kind"], "id": editor_result["id"],
+                          "index": editor_result["index"], "path": editor_result["path"],
+                          "parameters": parameters, "state_base64": state_base64, "revision": revision,
+                          "worker_pid": os.getpid(), **window_info}
         except BaseException:
             result = {"state": "failed", "kind": editor_result.get("kind"), "id": editor_result.get("id"),
                       "index": editor_result.get("index"), "path": editor_result.get("path"),
-                      "error": "native plugin editor failed or could not capture its final state"}
+                      "error": "native plugin editor failed or could not capture its final state", "revision": revision,
+                      "worker_pid": os.getpid()}
+        finally:
+            stop_discovery.set()
+            if finder:
+                finder.join()
         with editor_lock:
-            editor_result.clear()
-            editor_result.update(result)
+            if editor_result.get("revision") == revision:
+                editor_result.clear()
+                editor_result.update(result)
 
     conn.send((True, {"latency_samples": total_latency}))
     command_thread = threading.Thread(target=command_loop, name="realtime-mixer-commands", daemon=True)
@@ -331,10 +438,10 @@ def _worker_main(conn, sample_rate, block_frames, tracks, mixer):
     try:
         while not shutdown.is_set() or editor_result.get("state") == "opening":
             try:
-                effect, close_event = editor_commands.get(timeout=.05)
+                effect, close_event, revision = editor_commands.get(timeout=.05)
             except queue.Empty:
                 continue
-            run_editor(effect, close_event)
+            run_editor(effect, close_event, revision)
     finally:
         shutdown.set()
         command_thread.join(1)

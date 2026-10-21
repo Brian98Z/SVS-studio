@@ -108,4 +108,117 @@ def test_worker_rejects_parameter_that_changes_latency(monkeypatch):
     commands.put(('update', {'t': {**track, 'fx': [{**spec, 'parameters': {'delay': 3}}]}}, mixer))
     assert replies.get(timeout=5) == (False, ('RuntimeError', 'plugin latency changed; restart playback'))
     worker.join(timeout=5)
+
+
+def _run_worker_effect(effect, signal, updates=()):
+    commands, replies = Queue(), Queue()
+    spec = {"enabled": True, **effect}
+    track = {"id": "t", "volume": 1, "bus_gain": 1, "mute": False, "solo": False,
+             "bus": "master", "sends": [], "fx": [spec]}
+    mixer = {"buses": [], "master": {"volume": 1, "effects": []}, "buses_by_id": {}}
+
+    class Connection:
+        def recv(self): return commands.get(timeout=5)
+        def send(self, value): replies.put(value)
+        def close(self): pass
+
+    worker = threading.Thread(target=realtime_worker._worker_main,
+                              args=(Connection(), 48000, 16, [track], mixer), daemon=True)
+    worker.start()
+    assert replies.get(timeout=5)[0]
+    blocks = []
+    for index, block in enumerate(np.array_split(signal, len(signal) // 16)):
+        if index in updates:
+            spec = {"enabled": True, **updates[index]}
+            commands.put(("update", {"t": {**track, "fx": [spec]}}, mixer))
+            assert replies.get(timeout=5) == (True, None)
+        commands.put(("process", {"t": block}))
+        ok, pcm = replies.get(timeout=5)
+        assert ok, pcm
+        blocks.append(np.frombuffer(pcm, np.float32).reshape(-1, 2))
+    commands.put(("close",))
+    assert replies.get(timeout=5) == (True, None)
+    worker.join(timeout=5)
     assert not worker.is_alive()
+    return np.concatenate(blocks)
+
+
+def _reference_biquad(signal, rate, hz, state):
+    w = 2 * np.pi * min(hz, rate * .45) / rate
+    c, s = np.cos(w), np.sin(w)
+    a, d = s / np.sqrt(2), 1 + s / np.sqrt(2)
+    b = ((1-c)/2/d, (1-c)/d, (1-c)/2/d)
+    e, f = -2*c/d, (1-a)/d
+    x1, x2, y1, y2 = state
+    result = np.empty(len(signal), np.float64)
+    for i, sample in enumerate(signal):
+        value = b[0]*float(sample)+b[1]*x1+b[2]*x2-e*y1-f*y2
+        result[i] = value
+        x2, x1, y2, y1 = x1, float(sample), y1, value
+    return result, (x1, x2, y1, y2)
+
+
+def test_realtime_eq_preserves_filter_history_across_blocks_and_cutoff_update():
+    rng = np.random.default_rng(24)
+    signal = rng.normal(0, .2, (64, 2)).astype(np.float32)
+    effect = {"type": "eq3", "low_db": 5, "mid_db": -2, "high_db": 3,
+              "low_hz": 180, "high_hz": 5000}
+    updated = {**effect, "low_hz": 730}
+    out = _run_worker_effect(effect, signal, {2: updated})
+    expected = np.empty_like(signal)
+    for ch in range(2):
+        low_state = high_state = (0., 0., 0., 0.)
+        for start, end, cutoff in ((0, 32, 180), (32, 64, 730)):
+            low, low_state = _reference_biquad(signal[start:end, ch], 48000, cutoff, low_state)
+            below, high_state = _reference_biquad(signal[start:end, ch], 48000, 5000, high_state)
+            expected[start:end, ch] = (low*10**(5/20) + (below-low)*10**(-2/20) +
+                                       (signal[start:end, ch]-below)*10**(3/20))
+    np.testing.assert_allclose(out, expected, rtol=2e-6, atol=2e-7)
+
+
+def test_realtime_reverb_keeps_ring_history_while_room_and_wet_update():
+    effect = {"type": "reverb", "wet": .4, "room": .3}
+    updated = {**effect, "wet": .8, "room": .9}
+    ring_lengths = [int(48000*(.035+.11*effect["room"])*(1+.08*ch)) for ch in range(2)]
+    length = ((max(ring_lengths)*2 + 64 + 15) // 16) * 16
+    signal = np.zeros((length, 2), np.float32)
+    signal[0] = (.7, -.3)
+    signal[max(ring_lengths)//2] = (-.2, .5)
+    update_frame = ((max(ring_lengths) + 8) // 16) * 16
+    out = _run_worker_effect(effect, signal, {update_frame // 16: updated})
+    ring = [np.zeros(size, np.float32) for size in ring_lengths]
+    pos = [0, 0]
+    expected = np.empty_like(signal)
+    for n in range(len(signal)):
+        spec = effect if n < update_frame else updated
+        decay = .25+.65*spec["room"]
+        wet = []
+        for ch in range(2):
+            delayed = ring[ch][pos[ch]]
+            ring[ch][pos[ch]] = signal[n,ch]+delayed*decay
+            pos[ch] = (pos[ch]+1)%len(ring[ch])
+            wet.append(delayed)
+        expected[n] = signal[n]*(1-spec["wet"])+np.asarray(wet)*spec["wet"]*.35
+    assert np.any(np.abs(out[update_frame:, :]) > 0)
+    np.testing.assert_allclose(out, expected, rtol=2e-7, atol=1e-8)
+
+
+def test_realtime_compressor_keeps_linked_stereo_envelope_across_blocks():
+    signal = np.zeros((64, 2), np.float32)
+    signal[0:24, 0] = .8
+    signal[24:40, 1] = .4
+    effect = {"type": "compressor", "threshold_db": -18, "ratio": 4,
+              "attack_ms": 1, "release_ms": 30}
+    out = _run_worker_effect(effect, signal)
+    threshold = 10**(-18/20)
+    attack = np.exp(-1/(48000*.001))
+    release = np.exp(-1/(48000*.03))
+    env = 0.
+    expected = signal.copy()
+    for n in range(len(signal)):
+        peak = max(abs(float(signal[n,0])), abs(float(signal[n,1])))
+        coef = attack if peak > env else release
+        env = coef*env+(1-coef)*peak
+        if env > threshold:
+            expected[n] *= threshold*(env/threshold)**.25/env
+    np.testing.assert_allclose(out, expected, rtol=1e-6, atol=1e-7)

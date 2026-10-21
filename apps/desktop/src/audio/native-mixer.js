@@ -1,7 +1,7 @@
 export const NATIVE_MIXER_PROCESSOR_NAME = 'svs-native-mixer'
 
-// The worklet copies one bounded block at a time. Ownership of captured buffers is
-// transferred to the main thread; playback buffers are transferred back.
+// Transfer each contiguous track-major PCM block directly to the stream worker;
+// output buffers return over the same channel without renderer-thread copies.
 export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWorkletProcessor {
   constructor(options) {
     super()
@@ -11,10 +11,11 @@ export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWor
     this.targetBlocks = o.targetBlocks || 4
     this.captureOnly = !!o.captureOnly
     this.capacity = this.targetBlocks + 3
-    this.write = 0
     this.read = 0
-    this.count = 0
-    this.capture = new Float32Array(this.tracks.length * this.blockFrames * 2)
+    this.captureSamples = this.tracks.length * this.blockFrames * 2
+    // Five queued requests, one in flight, one block being captured.
+    this.capturePool = Array.from({ length: 7 }, () => new Float32Array(this.captureSamples))
+    this.capture = this.capturePool.pop()
     this.frames = 0
     this.queue = []
     this.started = false
@@ -29,8 +30,8 @@ export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWor
         this.receiveOutput(m)
       } else if (m.type === 'flush') {
         this.armed = false
-        this.queue.length = 0; this.read = 0; this.count = 0; this.started = false
-        this.capture.fill(0); this.frames = 0
+        this.queue.length = 0; this.read = 0; this.started = false
+        this.capture?.fill(0); this.frames = 0
       } else if (m.type === 'arm') {
         this.startTime = m.startTime
         this.armed = true
@@ -39,6 +40,12 @@ export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWor
   }
   send(message, transfer = []) { (this.streamPort || this.port).postMessage(message, transfer) }
   receiveOutput(m) {
+    if (m.type === 'recycle') {
+      if (m.samples instanceof ArrayBuffer && m.samples.byteLength === this.captureSamples * 4 && this.capturePool.length < 7) {
+        this.capturePool.push(new Float32Array(m.samples))
+      }
+      return
+    }
     if (!(m.samples instanceof ArrayBuffer)) return
     if (this.queue.length >= this.capacity) this.send({ type: 'overflow' })
     else {
@@ -51,6 +58,15 @@ export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWor
     if (!this.armed || currentTime < this.startTime) return true
     const frames = out?.[0]?.length || 128
     for (let c = 0; c < (out?.length || 0); c++) out[c].fill(0)
+    if (!this.capture) {
+      this.capture = this.capturePool.pop()
+      if (!this.capture) {
+        this.armed = false
+        this.send({ type: 'overflow' })
+        return true
+      }
+      this.capture.fill(0)
+    }
     for (let t = 0; t < this.tracks.length; t++) {
       const input = inputs[t]
       const left = input?.[0], right = input?.[1] || left
@@ -64,14 +80,10 @@ export const nativeMixerProcessorSource = `class SvsNativeMixer extends AudioWor
     }
     this.frames += frames
     if (this.frames >= this.blockFrames) {
-      const blocks = []
-      for (let t = 0; t < this.tracks.length; t++) {
-        const b = new Float32Array(this.blockFrames * 2)
-        b.set(this.capture.subarray(t * this.blockFrames * 2, (t + 1) * this.blockFrames * 2))
-        blocks.push(b.buffer)
-      }
-      this.send({ type: 'capture', blocks }, blocks)
-      this.capture.fill(0); this.frames = 0
+      const samples = this.capture.buffer
+      this.send({ type: 'capture', samples }, [samples])
+      this.capture = null
+      this.frames = 0
     }
     if (this.captureOnly) return true
     if (this.started && this.queue.length) {

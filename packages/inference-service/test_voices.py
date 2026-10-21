@@ -114,6 +114,56 @@ def test_invalid_vocoder_request_never_clears_binding(vocoder_pair, body):
     assert voices._config_path().read_bytes() == before
 
 
+def _valid_dsconfigs(bank, acoustic_ref='acoustic.onnx'):
+    (bank / 'dsconfig.yaml').write_text(yaml.safe_dump({'acoustic': acoustic_ref}))
+    for component, key in (('dsdur', 'dur'), ('dspitch', 'pitch'), ('dsvariance', 'variance')):
+        directory = bank / component
+        directory.mkdir(exist_ok=True)
+        (directory / 'dsconfig.yaml').write_text(yaml.safe_dump({'linguistic': '../ling.onnx', key: '../' + component + '.onnx'}))
+
+
+@pytest.mark.parametrize('reference', [r'\\server\share\model.onnx', r'\\?\C:\model.onnx', r'C:\model.onnx', r'C:model.onnx', '/model.onnx', '../outside.onnx'])
+def test_dsconfig_refs_reject_network_paths_before_probe_or_predictor_import(tmp_path, monkeypatch, reference):
+    from pathlib import Path
+    import builtins
+    from inference_service import vocoder_binding
+
+    bank = tmp_path / 'bank'
+    bank.mkdir()
+    _valid_dsconfigs(bank, reference)
+    probed = []
+    original_is_file = Path.is_file
+
+    def guarded_is_file(path):
+        probed.append(str(path))
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, 'is_file', guarded_is_file)
+    with pytest.raises(ValueError, match='non-local|escapes voicebank'):
+        vocoder_binding.validate_dsconfig_references(bank)
+    assert not probed
+
+    real_import = builtins.__import__
+    def guarded_import(name, *args, **kwargs):
+        if name.startswith('diffsinger_utau'):
+            raise AssertionError('external predictor import happened before validation')
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded_import)
+    with pytest.raises(ValueError, match='non-local|escapes voicebank'):
+        vocoder_binding.build_predictor(bank, None)
+
+
+def test_dsconfig_refs_allow_relative_references_within_bank(tmp_path):
+    from inference_service.vocoder_binding import validate_dsconfig_references
+
+    bank = tmp_path / 'bank'
+    bank.mkdir()
+    _valid_dsconfigs(bank)
+    for name in ('acoustic.onnx', 'ling.onnx', 'dsdur.onnx', 'dspitch.onnx', 'dsvariance.onnx'):
+        (bank / name).write_bytes(b'fixture')
+    assert validate_dsconfig_references(bank) == []
+
+
 def test_asset_revision_rejects_old_memory_and_disk_audio(tmp_path, monkeypatch):
     import numpy as np
     from inference_service import cache_manager

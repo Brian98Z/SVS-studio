@@ -26,6 +26,22 @@ function updateOutputDevice() {
   store.transport.output_sample_rate = device?.sample_rate || null
   if (selected && !device) devicesError.value = '所选设备已不可用，请重新选择；不会自动切换输出。'
 }
+async function chooseOutputDevice(event) {
+  const id = event.target.value
+  const previous = store.transport.output_device_id
+  const device = outputDevices.value.find(d => id ? d.id === id : d.is_default)
+  devicesError.value = ''
+  if (!device?.selectable) { event.target.value = previous; devicesError.value = '设备不可用；请刷新设备。'; return }
+  if (!store.transport.playing) {
+    store.transport.output_device_id = id
+    updateOutputDevice()
+    return
+  }
+  loadingDevices.value = true
+  try { await actions.switchOutputDevice(device.id, device.sample_rate) }
+  catch (error) { devicesError.value = error.message }
+  finally { event.target.value = store.transport.output_device_id; loadingDevices.value = false }
+}
 watch(() => store.transport.output, value => { if (value === 'device') refreshOutputDevices() })
 
 async function togglePlay() {
@@ -167,12 +183,16 @@ async function doImportAbc(abc, name) {
       <option value="device">原生声卡输出</option>
     </select>
     <template v-if="store.transport.output === 'device'">
-      <select v-model="store.transport.output_device_id" @change="updateOutputDevice" :disabled="store.transport.playing || loadingDevices" aria-label="原生输出设备" class="output-device">
+      <select v-model="store.transport.output_mode" :disabled="store.transport.playing" aria-label="声卡访问模式" title="独占模式可能拒绝其他应用使用设备；不支持时明确报错，不回退共享。">
+        <option value="shared">WASAPI 共享</option>
+        <option value="exclusive">WASAPI 独占</option>
+      </select>
+      <select :value="store.transport.output_device_id" @change="chooseOutputDevice" :disabled="loadingDevices || store.transport.state === 'buffering'" aria-label="原生输出设备" class="output-device" title="播放中可切换同采样率设备；失败不会回退默认设备。">
         <option value="">系统默认设备</option>
         <option v-if="store.transport.output_device_id && !outputDevices.some(d => d.id === store.transport.output_device_id)" :value="store.transport.output_device_id" disabled>所选设备已不可用</option>
         <option v-for="device in outputDevices" :key="device.id + device.name" :value="device.id" :disabled="!device.selectable">{{ device.name }} · {{ device.sample_rate || '?' }}Hz{{ device.selectable ? '' : ' · 不支持' }}</option>
       </select>
-      <button @click="refreshOutputDevices" :disabled="store.transport.playing || loadingDevices" title="刷新本机输出设备">{{ loadingDevices ? '读取中' : '刷新设备' }}</button>
+      <button @click="refreshOutputDevices" :disabled="loadingDevices" title="刷新本机输出设备">{{ loadingDevices ? '读取中' : '刷新设备' }}</button>
       <span v-if="devicesError" class="play-error" role="alert">{{ devicesError }}</span>
     </template>
     <label class="buffer-setting" title="原生VST及声卡路线的处理分块；越小请求越频繁，更容易欠载。浏览器无VST时不使用此设置。">分块

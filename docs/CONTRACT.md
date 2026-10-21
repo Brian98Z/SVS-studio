@@ -2,6 +2,8 @@
 
 单一事实来源。前后端、CLI、MCP、推理服务全部按本文件实现；改动需同步所有消费方。
 
+本机HTTP边界：8761只接受`127.0.0.1:8761`／`localhost:8761` Host；推理服务只接受其实际配置端口的同类Host。浏览器Origin只允许Tauri本机源、8761同源和5173开发源；缺Origin且Sec-Fetch-Site为cross-site的请求拒绝。校验覆盖读写及WebSocket，在业务处理前返回403；无Origin的CLI／服务间请求继续可用。这不是本机进程认证或沙箱。
+
 ## 1. 坐标与单位
 
 | 常量 | 值 | 说明 |
@@ -180,7 +182,7 @@ hello	hh ah l ow
 {"type":"vst3","enabled":false,"path":"plugins/Effect.vst3","parameters":{"output_gain_db":-6},"block_frames":4096,"tail_seconds":0.5}
 ```
 
-- `path` 默认使用项目内 `plugins/Effect.vst3`，也接受插件目录内相对路径；相对路径不得逃出插件根。源码默认项目根 `plugins/`，可用 `SVS_PROJECT_ROOT` 或 `SVS_PLUGIN_DIR` 指定位置。已有绝对路径仍可读，支持 `.vst3` 单文件及目录 bundle；默认只扫描项目插件目录，不自动加载原生代码。
+- `path`默认使用项目内`plugins/Effect.vst3`或插件目录内相对路径；相对及绝对路径均须解析在`SVS_PLUGIN_DIR`（或`SVS_PROJECT_ROOT/plugins`）可信根内。UNC／设备／驱动器相对／解析后符号链接越界在任何加载前拒绝。支持根内`.vst3`文件及bundle；不再接受任意根外绝对路径，工程／云恢复不授予额外代码执行信任。
 - `parameters` 仅保存原始参数键和原始数值、布尔或字符串枚举值。中文显示字典为 `apps/desktop/src/audio/effect-labels.zh-CN.json`，不改写工程键、插件预设或二进制；未知参数保留原文。
 - 可选`state_base64`为Pedalboard原生`preset_data`（VST3 `.vstpreset`），不是参数JSON；缺失/null表示无预设。严格Base64、解码上限4MiB，校验VST3 v1头、little-endian 64位List偏移、chunk边界；载入前比较32字节class ID，异类预设拒绝。仅在隔离worker恢复，再叠加`parameters`。预设只包含插件自行序列化的数据，不携带外部采样/文件，不代表运行中DSP历史或任意版本兼容。
 - 预设与参数须作为一对保存/恢复，混音标准化不得丢弃任何已验证参数。真实WET预设未包含所选mode，Dragonfly写入参数后未处理时捕获状态可能仍是旧值；后续参数覆盖是必需行为，不对插件原生状态做猜测性修改或强行处理编辑器实例。预设独立往返不代表设置完整保留。
@@ -189,34 +191,38 @@ hello	hh ah l ow
 - 原生加载、检查、调参与离线处理在 spawned worker 中执行，离线默认单次60秒超时；持续会话另用5秒worker调用上限。崩溃和超时返回错误，不在主服务内执行插件。
 - Windows 目录 bundle 使用标准入口 `Contents/x86_64-win/<bundle-name>.vst3` 加载；不递归猜测其他二进制，入口缺失时报错。其他平台继续将目录交给宿主。
 - `POST /api/inference/vst/inspect` 返回 `parameters` 元数据（`type` 为 `boolean/string/number`）；`POST /api/inference/vst/process` 接受交错 f32le stereo `audio_base64` 及上述配置，返回处理后的同编码 PCM。
-- 离线导出按轨道、总线、Master 链执行。启用 VST3 时，试听使用持续隔离混音会话，经有界缓冲返回 WebAudio；不是整曲预渲染，也不是低延迟声卡回调宿主。插件 GUI 嵌入不支持。
+- 离线导出按轨道、总线、Master链执行。启用VST3时试听使用持续隔离混音会话及有界PCM缓冲；Windows支持WASAPI共享／独占输出，Tauri可内嵌当前实时实例GUI。仍不是低延迟声卡回调插件宿主，不保证任意插件兼容。
 - `POST /api/inference/vst/editor`（推理服务`/vst/editor`）必须JSON。`{action:"open",path,parameters?,state_base64?}`以202返回`{id,path,state:"opening"}`；同服务只允许一个编辑器，忙时409。先恢复预设再应用参数；worker主线程调用原生show_editor，主服务不阻塞，opening不代表窗口可见性证明。
 - `{action:"status",id}`返回opening/completed/failed；正常关闭completed同时返回`parameters,state_base64`，捕获失败不提交部分结果，不回退为参数JSON。`{action:"close",id}`异步关闭，5秒关闭超时后释放进程并标failed；未知会话404、非JSON415、错误请求400。状态请求维持30秒租约，服务退出释放子进程。
-- `/vst/editor`仍为独立实例，工具页回读参数及预设；混音器显式确认应用到原轨道/总线/Master。参数覆盖预设值，换路径清除旧预设，离页关闭。另见下述实时实例入口；均不嵌入窗口，不保证插件未序列化数据。
+- `/vst/editor`仍为独立实例；混音器显式确认应用到原轨道／总线／Master。参数覆盖预设值，换路径清除旧预设，离页关闭。实时实例在Windows Tauri中可内嵌；浏览器保留独立原生窗口，不保证插件未序列化数据。
  - `POST /api/project/effect/read`接受`{kind:"track"|"bus"|"master",id,index}`，返回原始`effect`及全工程`revision`；Master的id固定为`master`。缺失目标/索引404，非VST3效果400。
  - `PATCH /api/project/effect`接受相同目标及`expected_revision,parameters,state_base64?`。替换参数及显式提供的预设，缺失/null保留已有预设；路径、旁路、顺序和其他字段不变。复用`/mix/validate`校验，在校验前及提交写锁内检查版本；期间任何工程编辑409 `STALE_PROJECT`，不改工程或历史。成功保存历史并广播混音更新；预设变化要求重播，参数单独更新沿用现有规则。工程/携带包保留预设，插件本体和外部依赖不携带。
     
 ### 持续分块会话
 
-- 同源入口 `/api/inference/vst/realtime/{open,process,update,close}`；均 POST JSON。`open` 接受 `sample_rate`、`block_frames`、`tracks` 和 `mixer`，返回 `session_id`及固定`latency_samples`。会话内部持有原生插件实例，正常分块处理不重置插件、不在块间排空尾音；启动主线程完成采样率初始化、reset及零输入预备，扣除预备已消耗的宿主起始省略预算。
-- `process` 接受 `session_id`、从 0 连续递增的 `sequence` 及每条轨道的 `{id,audio_base64}`；音频为已做轨道声像的交错 f32le 双声道、恰好 `block_frames` 帧。返回同帧数 PCM、序号与 `processing_ms`。服务端统一执行轨道增益/效果、发送、总线和 Master，避免浏览器重复执行这些效果。
-- 浏览器由专用模块 Web Worker 顺序发送处理请求并编解码；AudioWorklet 经可转移 MessageChannel 直接交付PCM，不经界面主线程转发。worker输入待处理队列最多5块，输出队列最多目标缓冲+3块；持续过载仍显式失败。音频时钟消息驱动预取/曲尾，不依赖requestAnimationFrame；主线程长期停顿仍可能影响尚未调度的未来音源，不保证任意后台/系统休眠连续性。
+- 同源入口 `/api/inference/vst/realtime/{open,process,update,close}`；除`process`外均POST JSON。`open`接受`sample_rate`、`block_frames`、`tracks`和`mixer`，返回`session_id`及固定`latency_samples`。会话内部持有原生插件实例，正常分块不重置插件、不排空尾音；启动时完成采样率初始化、reset和零输入预备。
+- `process`仅接受`application/octet-stream`，头`X-Audio-Session-Id`标识会话，`X-Audio-Sequence`为从0连续递增的十进制序号。请求按open时tracks顺序连续排列各轨PCM，每轨为已做声像的交错f32le双声道、恰好`block_frames`帧；总长度必须为`tracks.length*block_frames*8`。响应为同帧数双声道f32le，头`X-Audio-Sequence`、`X-Audio-Frames`、`X-Audio-Processing-Ms`提供序号/帧数/worker调用耗时；错误仍JSON。旧JSON/Base64处理协议不再接受。有限值/长度/序号拒绝不推进序号；请求读取最多预期长度加1字节。
+- 专用Web Worker顺序发送二进制请求；AudioWorklet按固定轨道顺序捕获一个连续PCM缓冲，经可转移MessageChannel直接交付，无逐轨复制与Base64/JSON编码。Rust代理透传二进制及元信息头，Tauri精确来源允许会话/序号请求头。worker输入待处理队列最多5块，输出队列最多目标缓冲+3块，持续过载显式失败。时钟驱动预取/曲尾，不依赖requestAnimationFrame；主线程长期停顿仍可能影响未来音源，不保证后台/系统休眠连续性。
 - `update` 接受完整轨道与混音配置，更新参数、旁路、增益、静音/独奏及现有轨道/总线发送的电平。发送电平不是拓扑；发送目标/数量、效果顺序、插件路径或其他路由拓扑变化要求停止后重播。工具页保存后的混音刷新不得重建浏览器原生试听图。`close` 释放 worker，重复关闭允许成功；关闭后的处理请求拒绝。
-- `POST /api/inference/vst/realtime/editor`接受`{session_id,action:"open"|"status"|"close"}`；open另需`kind:"track"|"bus"|"master",id,index,path`（Master id省略或master）。index须非bool非负整数；非法目标/缺失path400、缺失目标404、非VST3效果400、路径不匹配409；重复打开409，不终止音频会话。未知/已关闭会话404，不回退独立编辑器。
-- open以202返回`mode:"live_instance",session_id,state:"opening",kind,id,index,path`；窗口绑定现有链实例，在worker主线程运行，处理/更新在命令线程继续。status为存储状态读取并续租，不周期性复制参数；close请求异步关窗。窗口返回且参数/预设均捕获成功才发布completed及`parameters,state_base64`；失败仅返回failed/error，无部分提交。服务退出/会话关闭释放窗口和worker；5秒调用上限不变。
+- `POST /api/inference/vst/realtime/editor`接受`{session_id,action:"open"|"status"|"close"}`；open另需`kind:"track"|"bus"|"master",id,index,path`。status/close必须提供open返回的`worker_pid,revision`，不匹配409 `EDITOR_REVISION_MISMATCH`。非法目标400、缺失目标404、非VST3效果400、路径不匹配409；重复打开409，不终止音频会话。
+- open以202返回`mode:"live_instance",session_id,state:"opening",kind,id,index,path,worker_pid,revision`；status可返回`editor_hwnd,editor_class`。Windows窗口在worker主线程运行，处理／更新在命令线程继续。close最多等待3秒回读，只有参数／预设均捕获成功才返回completed及`parameters,state_base64`；未完成仍opening，UI不可应用。会话关闭先请求关窗并确认最终状态，再终止worker；5秒调用上限不变。
+- Tauri `embed_vst_editor`仅接受自有sidecar后代进程、服务端确认的会话／worker PID／修订号／精确HWND及JUCE窗口类；`resize_vst_editor`与`detach_vst_editor`要求完整`session_id,worker_pid,revision`并检查窗口归属。embed／resize新增`clip_x,clip_y,clip_width,clip_height`，为相对完整窗口的物理像素裁剪，x/y允许负坐标；客户端求视口及溢出裁剪祖先交集，native再次与主客户区求交，原始目标尺寸不缩小，空交集以空region裁掉像素但不隐藏JUCE宿主，避免触发其关闭。脱离恢复原region／父窗／style。内嵌不自动持久化工程，关闭回读后须显式应用；离页及迟到结果受generation保护，worker五秒找不到JUCE失败，关闭及时停止发现线程。其他平台拒绝内嵌。
+- 内嵌对象为服务端确认顶层JUCE宿主的唯一直接JUCE内容子窗；宿主保持可见并移至屏幕外，不将其本身重挂。IPC成功返回确认过的宿主HWND，内部独立保存内容／宿主／容器身份。resize校验内容仍属于当前容器及worker；detach检查内容、容器和原父窗归属，关闭／归属变化时释放保存region并清除挂载状态，返回错误而不操作其他进程窗口。保存region在应用状态销毁时亦释放。
 - 实时GUI改动仅作用于实际试听实例，已缓冲音频不变；不自动改工程。混音器关闭回读后显式确认，先停止试听再以原修订号提交；并发修改409拒绝，预设需重播。插件改变报告延迟时停止并要求重播；原生窗口与DSP并发仍受插件自身线程安全限制，崩溃/卡死通过隔离进程及超时释放，不保证任意插件编辑器兼容。
 - 原生试听的短句预取、必需缓冲判定及音源调度均不按静音/独奏过滤；原生混音器决定可听性，以支持起播静音/非独奏轨在线恢复当前短句。仍使用6秒预取窗口、2个并发请求与64MiB缓存上限，可能增加起播合成等待；无VST试听沿用可听轨过滤。
 - 原生在线声像在浏览器音源进入原生混音器前处理；更新须同步当前音源及调度计划的声像快照，使后续短句/剪辑使用最新值。服务端配置中的轨道pan保持0，避免重复声像处理。
 - 插件失败、处理超时或排队溢出显式停止试听，不静默退回干声。暂时欠载输出静音并计数，积累目标块数后按序恢复，不丢弃已排队PCM；不把静音段计入已播放音频帧。暂停、停止、跳转及内容版本变化取消旧会话和流worker，迟到结果不得恢复声音。界面缓冲毫秒数不是声卡端到端测量。
+- 捕获池预分配7块（5排队＋1在途＋1捕获），MessageChannel转移原始ArrayBuffer；处理／声卡提交完成以`{type:"recycle",samples}`归还，不参与音频输出。重用前清零，池耗尽只发一次overflow并停止捕获；已有输出顺序与欠载策略不变。
 - 持续会话上限为4个、32轨、32效果、每块1–8192帧、8–192kHz；空闲30秒回收。浏览器使用2048帧与4块目标缓冲，实际欠载单独计数。补偿延迟最长路由最多10秒，立体声f32延迟线总内存最多64MiB，超限拒绝启动。
 - 试听尾音预算按已启用效果的显式 `tail_seconds` 串联相加；轨道输出/发送、总线输出/发送到 Master 的并行路径取最长，未连接总线和旁路效果不贡献预算。预算以工程音源结束为起点，处理更新成功后重算，支持播放中延长或缩短；这不是自动检测插件完整衰减，也不增加内建效果缺省尾音配置。
 - 持续PDC在每个汇合点为较短路径分配跨块环形延迟线；轨道输出/发送、总线输出/发送及Master串联均参与，未连接总线不延长可听路径。插件报告延迟在旁路时亦保留，插件和对应干声延迟持续处理，保证启用切换不改变时间原点。返回PCM省略的起始缓存以对应零前缀补回，不再用首块短缺猜测报告延迟；超出报告预算的缓存拒绝处理。
 - 参数更新或处理后报告延迟变化，终止会话并返回409 `RESTART_REQUIRED`，须停止重播；不热改延迟线或静默错位。浏览器`plugin_latency_ms`与网络`latency_ms`分开显示；播放头以`max(0,heard_frames-latency_samples)`推进，使自然结束时补偿尾部已排空。固定预算包含起播旁路插件，不代表低延迟声卡宿主；误报/未报告延迟不保证纠正。
+- 内建EQ使用带历史状态的SciPy滤波，在线改截止频率保留输入/输出历史；混响按环形缓冲连续片段执行反馈，保留跨块尾音与原有在线room/wet语义。压缩器保留联动立体声逐样本包络，移除每采样NumPy临时数组。浮点重排允许舍入级差异，不承诺新旧逐样本位一致。声卡环形读写按最多两段连续区间处理，无每采样取模，回调仍无锁/分配。
 
 
 ## 12. 依赖清单入口
 
-Python 使用根目录 `requirements*.txt`，用 `-r` 组合配置；`requirements.txt` 为 CPU 基础，`requirements-build.txt` 为冻结打包，其他按功能独立安装。`requirements-native.txt` 是旧版 CPU DiffSinger 独立环境，不能与现代 `requirements-gpu.txt` 混装。CPU `onnxruntime` 与 `onnxruntime-gpu` 不得共存。清单为版本约束，不是全平台哈希锁。
+Python使用根目录`requirements*.txt`按功能独立安装。Windows CPython3.11冻结打包以`scripts/release-windows-py311.lock`锁定47项版本与wheel SHA-256；干净环境用`pip install --require-hashes -r scripts/release-windows-py311.lock`安装。原始wheel用`pip download --require-hashes --only-binary=:all: --no-deps -r scripts/release-windows-py311.lock -d release/python/wheelhouse`获取。`release_python.py verify --python <path> --wheelhouse <dir>`严格解析锁、检查ABI／版本／额外包，校验wheel哈希，以原始wheel RECORD有哈希行检查安装RECORD及流式文件哈希／长度；标准wheel脚本shebang按实际解释器精确重写后比较，处理.data安装路径。删除／清空已安装哈希行不能绕过校验；原始无哈希项及安装生成附加项不作来源承诺。缓存缺失／变更拒绝，生成锁要求空wheelhouse。默认构建环境`.venv-release-lock`、默认wheelhouse为`release/python/wheelhouse`，打包用`-BuildPython`／`-Wheelhouse`覆盖，替换runtime前校验。GPU／原生DiffSinger独立环境；该锁不代表跨机器运行或GPL对应源码审核。
 
 `requirements-system.txt` 是非 pip 工具及外部资源清单；Rust/Cargo 和前端/npm 仍由原生 manifest/lock 管理。声库、模型、插件和凭据不由 pip 自动安装或重新授权。
 
@@ -262,12 +268,23 @@ Python 使用根目录 `requirements*.txt`，用 `-r` 组合配置；`requiremen
 
 ## 17. 本机原生声卡输出
 
-- `POST /api/audio/output/open`接受JSON`{sample_rate,block_frames,target_blocks,device_id?:string|null}`；省略/null使用默认设备，显式ID只匹配所选设备，不可用/同名歧义503，绝不回退默认。采样率8000..192000，块1..8192帧，目标1..128块，容量`block_frames*(target_blocks+3)`不超过1048576帧。所选设备须双声道且默认采样率与请求匹配，支持f32/i16/u16；设备/格式不可用503`OUTPUT_UNAVAILABLE`，配置越界400，活动流409`OUTPUT_BUSY`。返回`{id,sample_rate,channels:2,device,device_id,capacity_frames,target_frames}`。
-- `GET /api/audio/output/devices`枚举本机默认CPAL host输出，返回`{devices:[{id,name,is_default,selectable,sample_rate?,channels?,reason?}]}`。ID为精确设备名SHA-256，不用枚举序号；同名设备禁用显式选择并报歧义。该ID不是系统端点GUID，设备重命名后须刷新重选；设备名读取失败项无法安全标识，不列入。
+- `POST /api/audio/output/open`接受`{sample_rate,block_frames,target_blocks,device_id?:string|null,mode?:"shared"|"exclusive"}`，默认shared。Windows使用WASAPI原生端点ID，显式缺失ID不回退；精确双声道格式不可用503。独占只探测f32／PCM16并明确失败，不回退共享。块、预缓冲及容量边界保持不变，返回含`mode`的流信息。
+- `GET /api/audio/output/devices`返回`{devices:[{id,name,is_default,selectable,sample_rate?,channels?,reason?}],asio}`。Windows ID为系统端点GUID，可区分同名设备；非Windows沿用CPAL设备名哈希和共享模式。同名物理设备及拔插尚未实测，ASIO未实现。
 - `POST /api/audio/output/{id}/pcm`提交恰好一块交错双声道f32le二进制，头`x-audio-sequence`从0递增。非有限/长度非法400`INVALID_PCM`，错序409`SEQUENCE_MISMATCH`，队列满409`OUTPUT_FULL`；拒绝不写入、不递增序号，客户端稍后原序重试。整块原子发布，不观察半帧。
 - `GET /api/audio/output/{id}`返回`{id,device,device_id,sample_rate,queued_frames,played_frames,underruns,started,error?}`。played_frames仅计实际消费内容，欠载填零不推进；达到target_frames后启动，欠载后重新预缓冲。回调只消费预分配原子环形队列，无分配、锁、网络或插件处理；设备错误原子标记并由状态暴露。
 - `DELETE /api/audio/output/{id}`幂等关闭并等待设备owner线程释放，失败503。状态/PCM维持心跳，无心跳约5秒释放，下次open清除过期项；未知ID404，不影响新流。精确Tauri来源允许`x-audio-sequence`头。
-- 走带输出为会话设置，不写工程。原生模式经隔离混音进程后转发本机声卡；AudioWorklet仅捕获源，不同时浏览器播放。时钟来自设备消费帧并扣插件补偿；停止/暂停/定位关闭旧流。仍有WebAudio源调度、HTTP/VST块缓冲和系统设备缓冲，不声称端到端低延迟、ASIO/独占模式或远程声卡支持。
-- 停止时可刷新并选择输出设备，播放期间禁用选择/刷新；显式选择缺失后保留原ID并提示不可用，不静默改为默认。设备与采样率为会话状态，不写工程；切换到不同默认采样率时重建AudioContext及音频图/源缓存，按新设备采样率生成VST块，不把44.1kHz数据作为48kHz播放。不支持热切换、ASIO或独占模式。
+- 原生模式经隔离混音进程转发本机声卡，AudioWorklet仅捕获源，不同时浏览器播放。时钟来自设备消费帧并扣插件补偿；停止／暂停／定位关闭旧流。仍有WebAudio、HTTP/VST块及设备缓冲，不声称端到端低延迟或远程声卡支持。
+- `POST /api/audio/output/{id}/switch`同采样率切换只保留一个待渲染确认，重叠请求明确失败；成功响应携带此次提交的精确端点／模式，不重新读取可能已变化的元数据。准备／启动失败尽量保留旧流，无法恢复或渲染失败则显式关闭。关闭／失败流拒绝切换；跨采样率仍409要求停止。
+- 设备枚举／初始化／切换／关闭在Tokio blocking池执行，控制操作串行，ACTIVE仅短时取引用／提交；不持有ACTIVE等待设备确认，PCM／状态仍可服务。设备名／ID作为同一提交快照返回，避免并发切换混合身份。
+- `POST /api/audio/output/{id}/switch`接受`{device_id,sample_rate,mode}`，Windows owner线程打开新流并成功提交首块后才确认目标；保持PCM序号与消费计数。不同采样率409 `SAMPLE_RATE_CHANGE_REQUIRES_STOP`，失效目标503且保持原设备，不回退默认；超时／设备错误明确停止。UI允许播放中同采样率设备切换，模式仅停止时选择。设备ID、采样率与模式是会话状态，不写工程。
+- 原生输出使用`AudioContext.setSinkId({type:"none"})`提供不占实际声卡的WebAudio源捕获时钟；浏览器路线恢复默认sink。独占前必须支持该API，否则明确拒绝并要求更新WebView2／选择共享，防止独占默认端点后源时钟停止而UI假播放。格式探测共享模式必须传非空closest-format输出，并释放其COM内存。
 - 前端会话设置`audition:{block_frames,target_blocks}`允许分块512/1024/2048/4096帧及预缓冲2/4块，默认2048/4；播放期间禁用设置，启动时快照到当前会话，非法组合在创建混音/设备流前拒绝。不写工程，不静默自动改变分块以掩盖过载。所选分块一致用于混音进程、AudioWorklet捕获和设备PCM提交；目标块数用于浏览器输出或原生设备预缓冲。分块须为128帧量子的整数倍；显示预算`block_frames*target_blocks/sample_rate`不是端到端延迟，小分块可能欠载/过载。
 
+
+## 18. 自建声库分发
+
+- 独立服务`apps/voice-distribution/server.py`使用SQLite、密码哈希、用户token、短时签名下载token、管理员提交／审批、许可证据、Range与SHA-256。默认仅回环HTTP，非回环须TLS证书／私钥；无默认账号，不执行或重新授权声库代码。
+- 管理员本地CLI：`init`、`create-admin <user>`、`create-user <user>`、`submit <title> <version> <zip> --rights <statement> --terms <file>`、`pending`、`review <id> approved|rejected --note <text>`、`serve`。密码交互输入，不在命令行传递；审批前包不向普通账号可见。
+- 客户端`/voices/distribution/{status,configure,disconnect,catalog,terms/<id>,install}`提供配置、许可查看和安装。Windows用DPAPI持久化token，不存密码；HTTPS或明确回环HTTP端点。`POST install`必须JSON含`package_id,accepted_terms:true,accepted_terms_sha256,accepted_archive_sha256`，后两项为64位小写十六进制；缺失／格式非法400，当前审核目录哈希与已阅读项不符422。前端以端点／ID／原包／许可哈希绑定确认，刷新／重连撤销旧确认，迟到许可响应失效。文本原样转义展示，PDF提供下载，未知格式不解锁确认。完整包校验后复用安全解包／登记；中断可续传，已有目录拒绝覆盖。
+- 分发HTTP非200／206在读写sink前拒绝；WebDAV下载非200不创建／截断目标。分发安装捕获配置修订号，重连／断开导致在下载后／登记前取消，最终登记与配置变更互斥；不自动切到新服务继续安装。
+- 真实认证回环和自有元数据fixture已验收，不含第三方权重，不等于公网部署、商业授权或可用合成模型。公开分发仍须运维、域名、账号及权利审核。

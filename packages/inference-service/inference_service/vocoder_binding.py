@@ -6,6 +6,40 @@ from typing import Any
 
 import yaml
 
+import re
+from pathlib import PureWindowsPath
+
+
+_DSCONFIG_REFERENCES = {
+    "dsconfig.yaml": {"acoustic": Path(".")},
+    "dsdur/dsconfig.yaml": {"linguistic": Path("dsdur"), "dur": Path("dsdur")},
+    "dspitch/dsconfig.yaml": {"linguistic": Path("dspitch"), "pitch": Path("dspitch")},
+    "dsvariance/dsconfig.yaml": {"linguistic": Path("dsvariance"), "variance": Path("dsvariance")},
+}
+
+
+def validate_dsconfig_references(voicebank: Path) -> list[str]:
+    """Validate every acoustic/component model reference before probing any target."""
+    root = Path(voicebank).resolve()
+    targets: list[tuple[str, Path]] = []
+    for config_name, references in _DSCONFIG_REFERENCES.items():
+        config = root / config_name
+        data = _yaml(config)
+        for key, base in references.items():
+            ref = data.get(key)
+            if not isinstance(ref, str) or not ref or "\x00" in ref:
+                raise ValueError(f"invalid {config_name}:{key} model reference")
+            windows = PureWindowsPath(ref)
+            if (windows.root or windows.drive or Path(ref).is_absolute()
+                    or re.match(r"^[\\/]{2,}[?.]", ref)):
+                raise ValueError(f"non-local {config_name}:{key} model reference")
+            target = (root / base / Path(ref.replace("\\", "/"))).resolve()
+            if not target.is_relative_to(root):
+                raise ValueError(f"{config_name}:{key} model reference escapes voicebank")
+            targets.append((f"{config_name}:{key}", target))
+    return [str(target) for _, target in targets if not target.is_file()]
+
+
 _MATCH_FIELDS = ("name", "sample_rate", "hop_size", "win_size", "fft_size", "num_mel_bins",
                  "mel_fmin", "mel_fmax", "mel_base", "mel_scale")
 
@@ -39,7 +73,11 @@ def inspect_vocoder(acoustic_root: Path, external_path: str | Path | None = None
         return {"source": source, "path": str(root), "compatible": False, "missing_files": missing,
                 "issues": [f"Invalid configuration: {exc}"]}
     ref = voc.get("model")
-    model = (root / ref).resolve() if isinstance(ref, str) and ref else None
+    if isinstance(ref, str) and (PureWindowsPath(ref).root or PureWindowsPath(ref).drive or Path(ref).is_absolute() or "\x00" in ref):
+        issues.append("model reference must be a local relative path")
+        model = None
+    else:
+        model = (root / ref).resolve() if isinstance(ref, str) and ref else None
     confined = model is not None and model.is_relative_to(root)
     if not confined:
         issues.append("model reference escapes vocoder directory or is invalid")
@@ -68,15 +106,16 @@ def validate_binding(acoustic_root: Path, external_path: str | Path) -> Path:
 
 
 def build_predictor(voicebank: Path, vocoder_path: str | Path | None):
-    """Compose upstream supported readers and predictors without PredAll's hardcoded vocoder."""
+    """Compose upstream supported readers without PredAll's hardcoded vocoder."""
+    bank = voicebank.resolve()
+    validate_dsconfig_references(bank)
+    # Validate references before importing or constructing any external predictor.
     from diffsinger_utau.voice_bank.commons.voice_bank_reader import VoiceBankReader
     from diffsinger_utau.voice_bank.pred_duration import PredDuration
     from diffsinger_utau.voice_bank.pred_pitch import PredPitch
     from diffsinger_utau.voice_bank.pred_variance import PredVariance
     from diffsinger_utau.voice_bank.pred_acoustic import PredAcoustic
     from diffsinger_utau.voice_bank.pred_vocoder import PredVocoder
-
-    bank = voicebank.resolve()
     reader = VoiceBankReader.__new__(VoiceBankReader)
     reader.voice_bank_path = bank
     reader.preload_models = False

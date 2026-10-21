@@ -22,3 +22,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 hound = "3"
 anyhow = "1"
 cpal = "0.15"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.54", features = ["Win32_Foundation", "Win32_Devices_FunctionDiscovery", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Variant"] }

@@ -19,12 +19,33 @@ from .onnx_pipeline import OnnxPipeline, MODELS_DIR
 app = Flask(__name__)
 cache = AudioCache()
 
+
+@app.before_request
+def local_browser_boundary():
+    # Binding loopback and configuring CORS alone do not stop simple POSTs or
+    # DNS rebinding. Check before any cache, file, plugin or project operation.
+    if request.host not in {f"127.0.0.1:{LOCAL_PORT}", f"localhost:{LOCAL_PORT}"}:
+        return jsonify({"error": "UNTRUSTED_HOST"}), 403
+    origin = request.headers.get("Origin")
+    allowed = {"http://tauri.localhost", "http://127.0.0.1:8761", "http://localhost:8761",
+               "http://127.0.0.1:5173", "http://localhost:5173",
+               f"http://127.0.0.1:{LOCAL_PORT}", f"http://localhost:{LOCAL_PORT}"}
+    if origin is not None and origin not in allowed:
+        return jsonify({"error": "UNTRUSTED_ORIGIN"}), 403
+    if origin is None and request.headers.get("Sec-Fetch-Site") not in {None, "none", "same-origin", "same-site"}:
+        return jsonify({"error": "UNTRUSTED_ORIGIN"}), 403
+
+
+LOCAL_PORT = 8760
+
 from .voices import register_routes as register_voices
 from .vst_host import register_routes as register_vst
 from .media_io import register_routes as register_media
 register_voices(app)
 from .voice_install import register_routes as register_voice_install
 register_voice_install(app)
+from .voice_distribution import register_routes as register_distribution
+register_distribution(app)
 register_vst(app)
 from .vst_editor import register_routes as register_editor
 register_editor(app)
@@ -123,11 +144,16 @@ def render_ds():
 
 def main():
     global _mode
+    global LOCAL_PORT
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8760)
     args = ap.parse_args()
+    LOCAL_PORT = args.port
     _init_mode()
-    app.run(host="127.0.0.1", port=args.port, threaded=True, debug=False, use_reloader=False)
+    from waitress import serve
+    serve(app, host="127.0.0.1", port=args.port, threads=8,
+          max_request_body_size=140 * 1024 * 1024,
+          clear_untrusted_proxy_headers=True)
 
 
 if __name__ == "__main__":

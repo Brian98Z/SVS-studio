@@ -112,29 +112,11 @@ def inspect_voice(path_value: str, name: str | None = None, vocoder_path: str | 
         ds_missing.extend(vocoder["missing_files"])
     ds_missing = list(dict.fromkeys(ds_missing))
     if is_diffsinger:
+        from .vocoder_binding import validate_dsconfig_references
         try:
-            import yaml
-            acoustic = yaml.safe_load((path / "dsconfig.yaml").read_text(encoding="utf-8")) or {}
-            acoustic_ref = acoustic.get("acoustic")
-            if not isinstance(acoustic_ref, str) or not acoustic_ref:
-                ds_missing.append("dsconfig.yaml:acoustic")
-            elif not (path / acoustic_ref).is_file():
-                ds_missing.append(acoustic_ref)
+            ds_missing.extend(validate_dsconfig_references(path))
         except Exception as exc:
-            ds_missing.append(f"dsconfig.yaml:{type(exc).__name__}")
-        for component in ("dsdur", "dspitch", "dsvariance"):
-            try:
-                import yaml
-                cfgpath = path / component / "dsconfig.yaml"
-                cfg = yaml.safe_load(cfgpath.read_text(encoding="utf-8")) or {}
-                for key in ("linguistic", {"dsdur": "dur", "dspitch": "pitch", "dsvariance": "variance"}[component]):
-                    ref = cfg.get(key)
-                    if not isinstance(ref, str) or not ref:
-                        ds_missing.append(f"{component}/dsconfig.yaml:{key}")
-                    elif not (cfgpath.parent / ref).is_file():
-                        ds_missing.append(f"{component}/{ref}")
-            except Exception as exc:
-                ds_missing.append(f"{component}/dsconfig.yaml:{type(exc).__name__}")
+            ds_missing.append(f"dsconfig.yaml:{type(exc).__name__}:{exc}")
     ds_missing = list(dict.fromkeys(ds_missing))
     if is_diffsinger:
         advertised.add("diffsinger_native")

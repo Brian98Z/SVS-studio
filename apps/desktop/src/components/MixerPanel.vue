@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, toRaw } from 'vue'
+import { computed, onMounted, onUnmounted, ref, toRaw, nextTick } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import EffectParameterGrid from './EffectParameterGrid.vue'
 import { defaultMixerConfig } from '../audio/fx.js'
 import { apiUrl } from '../audio/origin.js'
@@ -32,6 +33,96 @@ function patchEffect(index, patch) { const key=selectedId.value==='master'||sele
 function addEffect(type) { const initial=type==='eq3'?{low_db:0,mid_db:0,high_db:0,low_hz:250,high_hz:4000}:type==='reverb'?{wet:.15,room:.5}:{threshold_db:-18,ratio:4,attack_ms:10,release_ms:100};const key=selectedId.value==='master'||selectedId.value.startsWith('bus:')?'effects':'fx';patchChannel({[key]:[...effects.value,{type,enabled:false,...initial}]}) }
 function removeEffect(index){const key=selectedId.value==='master'||selectedId.value.startsWith('bus:')?'effects':'fx';patchChannel({[key]:effects.value.filter((_,i)=>i!==index)})}
 function numeric(index,key,event){patchEffect(index,{[key]:Number(event.target.value)})}
+const embeddedEditor = ref(null)
+const embedTarget = ref(null)
+let resizeObserver = null
+let attemptedAttachSession = null
+let editorGeneration = 0
+async function attachEditorWindow(result) {
+  const generation = editorGeneration
+  if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== result.session_id || !embedTarget.value) return false
+  await nextTick()
+  if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== result.session_id || !embedTarget.value) return false
+  try {
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== result.session_id) return false
+    const bounds = getEditorViewport()
+    if (!bounds) return false
+    const scale = window.devicePixelRatio || 1
+    const hwnd = await invoke('embed_vst_editor', { sessionId: result.session_id, workerPid: result.worker_pid,
+      revision: result.revision, expectedHwnd: result.editor_hwnd,
+      x: Math.round(bounds.targetLeft * scale), y: Math.round(bounds.targetTop * scale),
+      width: Math.max(1, Math.round(bounds.targetWidth * scale)), height: Math.max(1, Math.round(bounds.targetHeight * scale)),
+      clipX: Math.round((bounds.left - bounds.targetLeft) * scale), clipY: Math.round((bounds.top - bounds.targetTop) * scale),
+      clipWidth: bounds.visible ? Math.max(1, Math.round(bounds.width * scale)) : 0,
+      clipHeight: bounds.visible ? Math.max(1, Math.round(bounds.height * scale)) : 0 })
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== result.session_id) {
+      await invoke('detach_vst_editor', { sessionId: result.session_id, workerPid: result.worker_pid, revision: result.revision })
+      return false
+    }
+    if (Number(hwnd) !== Number(result.editor_hwnd)) { await invoke('detach_vst_editor', { sessionId: result.session_id, workerPid: result.worker_pid, revision: result.revision }); throw new Error('Tauri窗口校验的HWND与实时worker回报不一致。') }
+    embeddedEditor.value = { hwnd, sessionId: result.session_id, workerPid: result.worker_pid, revision: result.revision }
+    resizeObserver = new ResizeObserver(() => resizeEmbeddedWindow())
+    for (let ancestor = embedTarget.value; ancestor; ancestor = ancestor.parentElement) resizeObserver.observe(ancestor)
+    window.addEventListener('resize', resizeEmbeddedWindow)
+    window.addEventListener('scroll', resizeEmbeddedWindow, true)
+    resizeEmbeddedWindow()
+    return true
+  } catch (error) {
+    editorError.value = `无法安全内嵌插件窗口：${error.message || String(error)}`
+    if (projectEditor.value?.session_id === result.session_id) {
+      try { await editorRequest({ action: 'close', id: projectEditor.value.id, session_id: result.session_id, worker_pid: result.worker_pid, revision: result.revision }) }
+      catch (closeError) { editorError.value += `；关闭实时插件失败：${closeError.message}` }
+    }
+    return false
+  }
+}
+
+function getEditorViewport() {
+  const target = embedTarget.value
+  if (!target) return null
+  const rect = target.getBoundingClientRect()
+  let left = Math.max(0, rect.left), top = Math.max(0, rect.top)
+  let right = Math.min(window.innerWidth, rect.right), bottom = Math.min(window.innerHeight, rect.bottom)
+  for (let ancestor = target.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor)
+    if (/^(auto|scroll|hidden|clip)$/.test(style.overflowX)) {
+      const bounds = ancestor.getBoundingClientRect()
+      left = Math.max(left, bounds.left + ancestor.clientLeft); right = Math.min(right, bounds.left + ancestor.clientLeft + ancestor.clientWidth)
+    }
+    if (/^(auto|scroll|hidden|clip)$/.test(style.overflowY)) {
+      const bounds = ancestor.getBoundingClientRect()
+      top = Math.max(top, bounds.top + ancestor.clientTop); bottom = Math.min(bottom, bounds.top + ancestor.clientTop + ancestor.clientHeight)
+    }
+  }
+  const visible = right > left && bottom > top
+  if (!visible) { left = Math.min(Math.max(left, rect.left), rect.right); top = Math.min(Math.max(top, rect.top), rect.bottom) }
+  return { left, top, width: visible ? right - left : 0, height: visible ? bottom - top : 0, visible,
+    targetLeft: rect.left, targetTop: rect.top, targetWidth: rect.width, targetHeight: rect.height }
+}
+function resizeEmbeddedWindow() {
+  if (!embedTarget.value || !embeddedEditor.value) return
+  const rect = getEditorViewport()
+  if (!rect) return
+  const editor = embeddedEditor.value
+  const scale = window.devicePixelRatio || 1
+  invoke('resize_vst_editor', { sessionId: editor.sessionId, workerPid: editor.workerPid, revision: editor.revision,
+    x: Math.round(rect.targetLeft * scale), y: Math.round(rect.targetTop * scale),
+    width: Math.max(1, Math.round(rect.targetWidth * scale)), height: Math.max(1, Math.round(rect.targetHeight * scale)),
+    clipX: Math.round((rect.left - rect.targetLeft) * scale), clipY: Math.round((rect.top - rect.targetTop) * scale),
+    clipWidth: rect.visible ? Math.max(1, Math.round(rect.width * scale)) : 0,
+    clipHeight: rect.visible ? Math.max(1, Math.round(rect.height * scale)) : 0 })
+    .catch(error => { if (embeddedEditor.value === editor) editorError.value = error.message || String(error) })
+}
+async function detachEditorWindow() {
+  resizeObserver?.disconnect(); resizeObserver = null
+  window.removeEventListener('resize', resizeEmbeddedWindow)
+  window.removeEventListener('scroll', resizeEmbeddedWindow, true)
+  if (embeddedEditor.value) {
+    const editor = embeddedEditor.value
+    embeddedEditor.value = null
+    await invoke('detach_vst_editor', { sessionId: editor.sessionId, workerPid: editor.workerPid, revision: editor.revision })
+  }
+}
 const vstMetadata = ref({})
 const vstErrors = ref({})
 const draftVstPath = ref('plugins/')
@@ -56,39 +147,82 @@ function editorTarget(index) {
       : { kind: 'track', id: selectedId.value, index }
 }
 async function pollProjectEditor() {
+  const generation = editorGeneration
+  const sessionId = projectEditor.value?.session_id
+  const editorRevision = projectEditor.value?.editorRevision
   if (disposed || !projectEditor.value) return
   try {
-    const result = await editorRequest({ action: 'status', id: projectEditor.value.id, session_id: projectEditor.value.session_id })
-    if (disposed) return
-    projectEditor.value = { ...projectEditor.value, ...result }
+    const result = await editorRequest({ action: 'status', id: projectEditor.value.id, session_id: sessionId,
+      worker_pid: projectEditor.value.worker_pid, revision: editorRevision })
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== sessionId
+        || projectEditor.value?.editorRevision !== editorRevision) return
+    projectEditor.value = { ...projectEditor.value, ...result, projectRevision: projectEditor.value.projectRevision, editorRevision: result.revision }
+    if (result.state === 'opening' && result.session_id && result.editor_hwnd && !embeddedEditor.value && attemptedAttachSession !== sessionId && window.__TAURI_INTERNALS__) {
+      attemptedAttachSession = sessionId
+      await attachEditorWindow(result)
+    }
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== sessionId) return
+    if (['completed', 'failed'].includes(result.state)) await detachEditorWindow()
     if (result.state === 'completed') { editorMessage.value = '参数与插件预设状态已读回，尚未修改工程。确认应用后须重新播放；工程修改冲突将拒绝。'; return }
     if (result.state === 'failed') { editorError.value = result.error; return }
   } catch (error) {
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== sessionId) return
     editorError.value = error.message
-    if (projectEditor.value?.session_id) { projectEditor.value.state = 'failed'; return }
+    if (sessionId) {
+      try { await detachEditorWindow() } catch (detachError) { editorError.value += `；清理失败：${detachError.message}` }
+      if (generation === editorGeneration && projectEditor.value?.session_id === sessionId) projectEditor.value.state = 'failed'
+      return
+    }
   }
-  if (!disposed) editorTimer = setTimeout(pollProjectEditor, 700)
+  if (!disposed && generation === editorGeneration) editorTimer = setTimeout(pollProjectEditor, 700)
 }
 async function openProjectEditor(index, live = false) {
+  const generation = ++editorGeneration
   editorBusy.value = true; editorError.value = ''; editorMessage.value = ''
   try {
     const target = editorTarget(index)
     const snapshot = await api('POST', '/project/effect/read', target)
+    if (disposed || generation !== editorGeneration) return
     const session_id = live ? store.transport.native_session_id : null
     if (live && (!store.transport.playing || !session_id)) throw new Error('请先开始含VST的持续试听，再打开实时实例编辑器。')
     const result = await editorRequest(live
       ? { action: 'open', session_id, ...target, path: snapshot.effect.path }
       : { action: 'open', path: snapshot.effect.path, parameters: snapshot.effect.parameters || {}, state_base64: snapshot.effect.state_base64 })
-    projectEditor.value = { ...result, session_id, target, revision: snapshot.revision, label: `${ids.value.find(item => item.id === selectedId.value)?.name || selectedId.value} / 效果 ${index + 1}` }
-    if (disposed) { await editorRequest({ action: 'close', id: result.id, session_id }); return }
-    editorMessage.value = live ? '正在编辑实际试听实例；GUI修改立即作用于后续音频，尚未保存到工程。关闭后可确认保存。' : '独立编辑器已请求打开；关闭并回读后可显式应用，不会自动修改工程。'
+    if (disposed || generation !== editorGeneration) {
+      editorRequest({ action: 'close', id: result.id, session_id, worker_pid: result.worker_pid, revision: result.revision }).catch(() => {})
+      return
+    }
+    projectEditor.value = { ...result, session_id, target, projectRevision: snapshot.revision, editorRevision: result.revision, label: `${ids.value.find(item => item.id === selectedId.value)?.name || selectedId.value} / 效果 ${index + 1}` }
+    editorMessage.value = live ? '正在编辑实际试听实例；需要回读并显式应用。Tauri中原生窗口将内嵌，浏览器仅提供实时实例控制。' : '独立编辑器关闭并回读后可显式应用。'
     pollProjectEditor()
-  } catch (error) { editorError.value = error.message }
-  finally { editorBusy.value = false }
+  } catch (error) { if (!disposed && generation === editorGeneration) editorError.value = error.message }
+  finally { if (generation === editorGeneration) editorBusy.value = false }
 }
 async function closeProjectEditor() {
-  try { await editorRequest({ action: 'close', id: projectEditor.value.id, session_id: projectEditor.value.session_id }) }
-  catch (error) { editorError.value = error.message }
+  const editor = projectEditor.value
+  if (!editor || !editorRunning.value) return
+  const generation = ++editorGeneration
+  clearTimeout(editorTimer)
+  editorBusy.value = true
+  try {
+    await detachEditorWindow()
+    const result = await editorRequest({ action: 'close', id: editor.id, session_id: editor.session_id,
+      worker_pid: editor.worker_pid, revision: editor.editorRevision })
+    if (disposed || generation !== editorGeneration || projectEditor.value?.session_id !== editor.session_id) return
+    projectEditor.value = { ...projectEditor.value, ...result, projectRevision: editor.projectRevision,
+      editorRevision: result.revision ?? editor.editorRevision }
+    if (result.state === 'completed') editorMessage.value = '参数与插件原生预设状态已读回，尚未应用。确认应用前不会修改工程。'
+    else if (result.state === 'failed') editorError.value = result.error || '插件编辑器关闭失败，未读回状态。'
+    else {
+      editorError.value = '插件编辑器未返回最终状态；结果未标记为可应用。'
+      projectEditor.value.state = 'opening'
+      editorTimer = setTimeout(pollProjectEditor, 700)
+    }
+  } catch (error) {
+    if (!disposed && generation === editorGeneration) editorError.value = error.message
+  } finally {
+    if (generation === editorGeneration) editorBusy.value = false
+  }
 }
 async function applyProjectEditor() {
   const result = projectEditor.value
@@ -96,7 +230,7 @@ async function applyProjectEditor() {
   editorBusy.value = true; editorError.value = ''
   try {
     if (result.session_id) actions.stop()
-    await api('PATCH', '/project/effect', { ...result.target, expected_revision: result.revision,
+    await api('PATCH', '/project/effect', { ...result.target, expected_revision: result.projectRevision,
       parameters: Object.fromEntries(result.parameters.map(parameter => [parameter.name, parameter.value])), state_base64: result.state_base64 })
     projectEditor.value = null
     await actions.refreshMixer()
@@ -104,10 +238,15 @@ async function applyProjectEditor() {
   } catch (error) { editorError.value = error.message === 'STALE_PROJECT' ? '工程在编辑器打开后已修改，未应用参数。请丢弃结果并重新打开编辑器。' : error.message }
   finally { editorBusy.value = false }
 }
-onUnmounted(() => {
+onUnmounted(async () => {
   disposed = true
+  editorGeneration += 1
   clearTimeout(editorTimer)
-  if (editorRunning.value) editorRequest({ action: 'close', id: projectEditor.value.id, session_id: projectEditor.value.session_id }).catch(() => {})
+  try { await detachEditorWindow() } catch {}
+  if (editorRunning.value) {
+    try { await editorRequest({ action: 'close', id: projectEditor.value.id, session_id: projectEditor.value.session_id,
+      worker_pid: projectEditor.value.worker_pid, revision: projectEditor.value.editorRevision }) } catch {}
+  }
 })
 async function discoverVstPlugins() {
   try {
@@ -165,10 +304,11 @@ function removeSend(index){patchChannel({sends:(channel.value?.sends||[]).filter
         </template>
       </article></div>
       <div class="add"><button v-for="kind in ['eq3','reverb','compressor']" :key="kind" @click="addEffect(kind)">+ {{ effectLabel(kind) }}</button></div>
-      <p class="offline-note">独立编辑器不影响试听；实时实例编辑器直接修改当前持续会话的插件，缓冲后可听，但不自动保存工程。关闭后确认保存会停止试听；停止/跳转会释放实时窗口，未回读结果不保留。两种编辑器均不内嵌，工程修改冲突会拒绝保存。</p>
+      <p class="offline-note">工程配置编辑器以独立窗口运行；实时实例编辑器在此处内嵌当前试听worker的原生GUI，不自动保存工程。关闭/停止试听会回读状态，确认应用时工程修改冲突将拒绝保存。</p>
       <div class="add vst-add"><input v-model="draftVstPath" placeholder="插件路径（相对 plugins/），如 plugins/Effect.vst3"><button :disabled="!draftVstPath.trim()" @click="addVst">+ VST3</button></div>
     </div>
     <p v-else>选择一个轨道或 Master 编辑效果链。</p>
+    <div v-if="projectEditor?.session_id && editorRunning" ref="embedTarget" class="vst-editor-container" aria-label="内嵌VST插件窗口"></div>
     <section v-if="projectEditor" class="editor-result" aria-live="polite">
       <strong>{{ projectEditor.session_id ? '实时实例编辑目标' : '原生编辑目标' }}：{{ projectEditor.label }}</strong>
       <button v-if="editorRunning" @click="closeProjectEditor">关闭编辑器并读回</button>
@@ -186,4 +326,5 @@ function removeSend(index){patchChannel({sends:(channel.value?.sends||[]).filter
 .mixer-panel{box-sizing:border-box;min-width:0;background:#181b20;color:#c8cdd5;padding:8px;font-size:12px}header,.effect-title{display:flex;align-items:center;justify-content:space-between;gap:8px}select,.effect button,.add button,.effect input[type=number],.effect input[type=text],.add input{box-sizing:border-box;max-width:100%;background:#171c22;border:1px solid #394351;color:#dce2eb;border-radius:4px;padding:6px}.mixer-panel>header select{height:32px;width:min(240px,65%)}button{cursor:pointer}.channel{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;min-width:0;margin-top:8px}.channel>label,.routing,.sends{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.channel input[type=range],.sends input[type=range]{width:min(240px,60vw);accent-color:#8b70e8}.effects{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;min-width:0}.effect{box-sizing:border-box;min-width:0;width:100%;background:#20242b;border:1px solid #343a44;border-radius:5px;padding:10px;display:grid;align-content:start;gap:8px}.effect-title label{font-weight:600}.effect-title button{cursor:pointer}.effect input[type=range]{accent-color:#8b70e8}.effect>label:not(.vst-path){display:flex;gap:5px;align-items:center;flex-wrap:wrap}.effect>label:not(.vst-path) input[type=range]{flex:1;min-width:100px}.vst-effect{grid-column:1/-1}.vst-path{display:grid;gap:4px;min-width:0}.vst-path input{width:100%;height:32px}.vst-effect>select{width:min(360px,100%);height:32px}.vst-settings{display:flex;gap:12px;flex-wrap:wrap}.vst-settings label{display:grid;gap:4px}.sends>div{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.add{display:flex;gap:5px;flex-wrap:wrap}.vst-add input{flex:1;min-width:min(260px,100%);height:32px}.add button{cursor:pointer}.offline-note{margin:0;color:#9aa3af}.error{color:#ff9388}@media(min-width:900px){.effects{grid-template-columns:repeat(2,minmax(0,1fr))}.vst-effect{grid-column:1/-1}}
 .channel-controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px;background:#1c2027;border:1px solid #303742;border-radius:6px}.channel-controls>label,.routing label{display:flex;align-items:center;gap:8px;white-space:nowrap}.channel-controls button,.routing button,.sends button{min-height:32px;border:1px solid #394351;border-radius:4px;background:#252d39;color:#dce2eb;padding:5px 9px;font:inherit}.channel-controls select{height:32px}.channel-controls input[type=range]{width:160px}.effect-title input[type=checkbox]{accent-color:#8b70e8}.effect>button{justify-self:start;min-height:32px;padding:5px 14px}.sends strong{color:#aab4c2;font-weight:500}
 .editor-result{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;border:1px solid #50466d;border-radius:6px;background:#242130}.editor-result button{min-height:32px;padding:5px 10px;background:#353044;color:#eee7ff;border:1px solid #66547f;border-radius:4px;cursor:pointer}.editor-result button:disabled{opacity:.45;cursor:not-allowed}
+.vst-editor-container{width:100%;height:min(520px,60vh);min-height:260px;overflow:hidden;background:#101216;border:1px solid #394351;border-radius:6px}
 </style>

@@ -8,7 +8,10 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "resources": ["runtime/**/*"],
-    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installerHooks": "installer-hooks.nsh" }
+    }
   },
   "build": {
     "beforeDevCommand": "npm run dev",

@@ -1,8 +1,6 @@
 """HTTP-owned persistent native mixer sessions."""
 from __future__ import annotations
 
-import base64
-import binascii
 import math
 import threading
 import time
@@ -176,31 +174,36 @@ def register_routes(app):
     @app.post("/vst/realtime/process")
     @endpoint
     def process_session():
-        body=request.get_json(silent=True)
-        if not isinstance(body,dict): _fail("INVALID_REQUEST","JSON object required")
-        sid=body.get("session_id")
-        with _sessions_lock: session=_sessions.get(sid)
-        if session is None or session["closed"]: _fail("SESSION_NOT_FOUND","realtime session is closed or unknown",404)
+        if not request.mimetype or request.mimetype.lower() != "application/octet-stream":
+            _fail("INVALID_REQUEST", "Content-Type must be application/octet-stream", 415)
+        sid = request.headers.get("X-Audio-Session-Id")
+        with _sessions_lock: session = _sessions.get(sid)
+        if session is None or session["closed"]: _fail("SESSION_NOT_FOUND", "realtime session is closed or unknown", 404)
         with session["lock"]:
-            sequence = body.get("sequence")
-            if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence != session["sequence"]: _fail("INVALID_SEQUENCE",f"expected sequence {session['sequence']}")
-            raw=body.get("tracks")
-            expected={t["id"] for t in session["tracks"]}
-            if not isinstance(raw,list) or len(raw)!=len(expected): _fail("INVALID_AUDIO","one audio block per track is required")
-            inputs={}
-            for block in raw:
-                if not isinstance(block,dict) or block.get("id") not in expected or block["id"] in inputs or not isinstance(block.get("audio_base64"),str): _fail("INVALID_AUDIO","invalid or duplicate track block")
-                try: data=base64.b64decode(block["audio_base64"],validate=True)
-                except (ValueError,binascii.Error): _fail("INVALID_AUDIO","audio_base64 is invalid")
-                if len(data)!=session["frames"]*2*4: _fail("INVALID_AUDIO","audio block byte length does not match block_frames")
-                x=np.frombuffer(data,dtype="<f4").reshape((session["frames"],2))
-                if not np.isfinite(x).all(): _fail("INVALID_AUDIO","audio samples must be finite")
-                inputs[block["id"]]=x
-            if set(inputs)!=expected: _fail("INVALID_AUDIO","audio block is missing a track")
-            started=time.perf_counter()
-            output=_worker_call(session,("process",inputs))
-            session["sequence"]+=1
-            return jsonify({"ok":True,"sequence":body["sequence"],"audio_base64":base64.b64encode(output).decode("ascii"),"frames":session["frames"],"channels":2,"processing_ms":(time.perf_counter()-started)*1000})
+            sequence_header = request.headers.get("X-Audio-Sequence")
+            if sequence_header is None or not sequence_header.isascii() or not sequence_header.isdecimal():
+                _fail("INVALID_SEQUENCE", f"expected sequence {session['sequence']}")
+            sequence = int(sequence_header)
+            if sequence != session["sequence"]: _fail("INVALID_SEQUENCE", f"expected sequence {session['sequence']}")
+            expected_bytes = session["frames"] * 8 * len(session["tracks"])
+            if request.content_length is not None and request.content_length != expected_bytes:
+                _fail("INVALID_AUDIO", "audio payload byte length does not match block_frames and track count")
+            data = request.stream.read(expected_bytes + 1)
+            if len(data) != expected_bytes: _fail("INVALID_AUDIO", "audio payload byte length does not match block_frames and track count")
+            interleaved = np.frombuffer(data, dtype="<f4")
+            if not np.isfinite(interleaved).all(): _fail("INVALID_AUDIO", "audio samples must be finite")
+            track_samples = session["frames"] * 2
+            inputs = {track["id"]: interleaved[i * track_samples:(i + 1) * track_samples].reshape((session["frames"], 2))
+                      for i, track in enumerate(session["tracks"])}
+            started = time.perf_counter()
+            output = _worker_call(session, ("process", inputs))
+            processing_ms = (time.perf_counter() - started) * 1000
+            session["sequence"] += 1
+            response = app.response_class(output, mimetype="application/octet-stream")
+            response.headers["X-Audio-Sequence"] = str(sequence)
+            response.headers["X-Audio-Frames"] = str(session["frames"])
+            response.headers["X-Audio-Processing-Ms"] = format(processing_ms, ".6f")
+            return response
 
     @app.post("/vst/realtime/update")
     @endpoint
@@ -235,6 +238,11 @@ def register_routes(app):
         if session is None or session["closed"]: _fail("SESSION_NOT_FOUND", "realtime session is closed or unknown", 404)
 
         target = None
+        if action in {"status", "close"}:
+            worker_pid = body.get("worker_pid")
+            editor_revision = body.get("revision")
+            if type(worker_pid) is not int or type(editor_revision) is not int:
+                _fail("INVALID_EDITOR_TARGET", "worker_pid and revision are required for editor status/close")
         if action == "open":
             kind = body.get("kind")
             if not isinstance(kind, str) or kind not in {"track", "bus", "master"}:
@@ -275,6 +283,10 @@ def register_routes(app):
 
         with session["lock"]:
             if session["closed"]: _fail("SESSION_NOT_FOUND", "realtime session is closed or unknown", 404)
+            if action in {"status", "close"}:
+                current = _worker_call(session, ("editor_status",))
+                if current.get("worker_pid") != worker_pid or current.get("revision") != editor_revision:
+                    _fail("EDITOR_REVISION_MISMATCH", "editor session revision changed", 409)
             if action == "open":
                 result = _worker_call(session, ("editor_open", target))
                 command_error = result.get("command_error") if isinstance(result, dict) else None
@@ -289,10 +301,12 @@ def register_routes(app):
                 result = _worker_call(session, ("editor_close",))
                 status_code = 200
 
-        state = result.get("state", "idle") if isinstance(result, dict) else "failed"
+        state = result.get("state", "failed") if isinstance(result, dict) else "failed"
         response = {"mode": "live_instance", "session_id": sid, "state": state,
                     "kind": result.get("kind"), "id": result.get("id"), "index": result.get("index"),
-                    "path": result.get("path")}
+                    "path": result.get("path"), "worker_pid": result.get("worker_pid"),
+                    "editor_hwnd": result.get("editor_hwnd"), "editor_class": result.get("editor_class"),
+                    "revision": result.get("revision")}
         if state == "completed":
             response["parameters"] = result["parameters"]
             response["state_base64"] = result["state_base64"]
@@ -305,10 +319,22 @@ def register_routes(app):
         body=request.get_json(silent=True)
         if not isinstance(body,dict): _fail("INVALID_REQUEST","JSON object required")
         sid=body.get("session_id")
-        with _sessions_lock: session=_sessions.pop(sid,None)
+        with _sessions_lock: session=_sessions.get(sid)
         if session:
             with session["lock"]:
-                try: _worker_call(session,("close",))
-                except SessionError: pass
-                _terminate(session)
+                if session["closed"]: _fail("SESSION_NOT_FOUND", "realtime session is closed or unknown", 404)
+                try:
+                    editor = _worker_call(session, ("editor_status",))
+                    if editor.get("state") == "opening":
+                        final = _worker_call(session, ("editor_close",))
+                        if final.get("state") not in {"completed", "failed"}:
+                            _fail("EDITOR_CLOSE_UNCONFIRMED", "realtime editor did not return final state before shutdown", 504)
+                except SessionError:
+                    _terminate(session)
+                    with _sessions_lock: _sessions.pop(sid, None)
+                    raise
+                try: _worker_call(session, ("close",))
+                finally:
+                    _terminate(session)
+                    with _sessions_lock: _sessions.pop(sid, None)
         return jsonify({"ok":True})

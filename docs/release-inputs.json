@@ -1,0 +1,851 @@
+{
+  "schema": 1,
+  "target": "windows-x64 CPython3.11",
+  "companion_asset": "SVS_Studio_0.1.0_windows-x64_release-inputs.zip",
+  "companion_sha256": "012be635c0d548c07ba005b4b11f36d7546dca60225d0bd5f6b75aeb5dccb757",
+  "companion_bytes": 20500489,
+  "cache_root": "release/python",
+  "instructions": [
+    "Download the release-inputs companion from the maintainer-provided release draft/artifact. This is not currently a public download.",
+    "Verify companion SHA256; extract its release/python subtree at repository root. No wheelhouse or model assets are in this companion.",
+    "Provision CPython3.11 .venv-release-lock from scripts/release-windows-py311.lock with --require-hashes; download the same original wheels into release/python/wheelhouse.",
+    "Run scripts/package_desktop.ps1 -PrepareOnly, then the full packaging command. Preparation fails safely if required inputs are missing."
+  ],
+  "files": [
+    {
+      "path": "release/python/pedalboard-0.9.26-source.tar.gz",
+      "bytes": 27069299,
+      "sha256": "668e7ebab9b34c396fd750cb29262641c0f8082057a61dacde68542bfedeb67a"
+    },
+    {
+      "path": "release/python/PEDALBOARD-SOURCE-STATUS.json",
+      "bytes": 1372,
+      "sha256": "ac972ba126e4d19fff5aede0c48df2f9aee3bf0d5ed0797213d481f4ada5af14"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/JUCE.tar.gz",
+      "bytes": 9273344,
+      "sha256": "63215e0d094e3fc59d4c5a68fb08863496ffcc279f92a3c4e04af1ffe9d128c2"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/lame.tar.gz",
+      "bytes": 1513892,
+      "sha256": "b6b8a1e8e10a1353966345a5cd5efb10147afd1f26103951aa3dc36f2eb900dd"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/libgsm.tar.gz",
+      "bytes": 63604,
+      "sha256": "9e42bf825a88e2a359eba4b11945f753c4d50526dcbb81ae3d04a753c1efe30b"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/licenses/JUCE/LICENSE.md",
+      "bytes": 1957,
+      "sha256": "23d565e0e2ed28a686137a3f608a78ed502fdaea83babe3094a70763859345de"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/licenses/lame/COPYING",
+      "bytes": 25284,
+      "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/licenses/libgsm/COPYRIGHT",
+      "bytes": 1450,
+      "sha256": "81c68a3374937ed9b5e4929c709e81a2c4b35b5d1f450ecf8c473e2daea46ff6"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/licenses/pybind11/LICENSE",
+      "bytes": 1684,
+      "sha256": "83965b843b98f670d3a85bd041ed4b372c8ec50d7b4a5995a83ac697ba675dcb"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/licenses/rubberband/COPYING",
+      "bytes": 30260,
+      "sha256": "cedd4c1885d75991bf1077cc6e33359103cf04fbc996f20d30ab043d5fc5fcc5"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/pybind11.tar.gz",
+      "bytes": 790106,
+      "sha256": "da14a2a427049d1cf1eb687fb07bbb88c938368dd06c2bb5db71eb44b412f1a7"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/rubberband.tar.gz",
+      "bytes": 268734,
+      "sha256": "49d4b563f4a10c0bb7e7b4c30a7c951aca210cf6c3064d4f4921bc77f4c74db5"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/SUBMODULE-INVENTORY.json",
+      "bytes": 2022,
+      "sha256": "e23bdc1b2f0b58e5b1adbec1e4f5b72e01cff97ac41e265c9da6863db85a3e24"
+    },
+    {
+      "path": "release/python/pedalboard-submodules/SUBMODULE-LICENSES.json",
+      "bytes": 1451,
+      "sha256": "d009096a51f4eff6f00ab0c59c2ccc45cc5685d49125716909b1720f276f5b9c"
+    },
+    {
+      "path": "release/python/python-inventory.json",
+      "bytes": 3474,
+      "sha256": "6ac2696e0b7cbe7ed1861e10eb75ba66dc9f8edf47dbca66f02d62e5d406019f"
+    },
+    {
+      "path": "release/python/third-party/altgraph/altgraph-0.17.5.dist-info/LICENSE",
+      "bytes": 1002,
+      "sha256": "6c194d6db0c64d45535d10c95142b9b0cda7b7dcc7f1ddee302b3d536f3dbe46"
+    },
+    {
+      "path": "release/python/third-party/audioread/audioread-3.1.0.dist-info/licenses/LICENSE",
+      "bytes": 1063,
+      "sha256": "e00fff68a75a582132842e33426730699255986f1dec362252f7423db027019d"
+    },
+    {
+      "path": "release/python/third-party/blinker/blinker-1.9.0.dist-info/LICENSE.txt",
+      "bytes": 1054,
+      "sha256": "9eb73a1f38597a4aa17025d2ae1be3839624c795e985d4f0e9769ce29faca467"
+    },
+    {
+      "path": "release/python/third-party/certifi/certifi-2026.10.19.dist-info/licenses/LICENSE",
+      "bytes": 989,
+      "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
+    },
+    {
+      "path": "release/python/third-party/cffi/cffi-2.1.1.dist-info/licenses/LICENSE",
+      "bytes": 1123,
+      "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+    },
+    {
+      "path": "release/python/third-party/charset-normalizer/charset_normalizer-3.5.2.dist-info/licenses/LICENSE",
+      "bytes": 1092,
+      "sha256": "18577485d3704f1a479ded8e573c0976cfed315fd2fd17983fa988da4c2f70d1"
+    },
+    {
+      "path": "release/python/third-party/click/click-8.5.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 1475,
+      "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+    },
+    {
+      "path": "release/python/third-party/cloudpickle/cloudpickle-3.1.2.dist-info/licenses/LICENSE",
+      "bytes": 1754,
+      "sha256": "3029ea34173e9fdc233ad315dc6b100bd1ea71f529b1c1af97664a272fdc55f5"
+    },
+    {
+      "path": "release/python/third-party/decorator/decorator-5.3.1.dist-info/licenses/LICENSE.txt",
+      "bytes": 1308,
+      "sha256": "bd12cc51405c10872497c10ca21601f1d4abc50496595cc89e89ab5dad24fb62"
+    },
+    {
+      "path": "release/python/third-party/flask/flask-3.1.3.dist-info/licenses/LICENSE.txt",
+      "bytes": 1475,
+      "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea"
+    },
+    {
+      "path": "release/python/third-party/flatbuffers-25.12.19.dist-info/licenses/LICENSE",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "release/python/third-party/FLATBUFFERS-LICENSE-SOURCE.json",
+      "bytes": 435,
+      "sha256": "52084f77b94ef1cf0d4b7147ad986ce2045c5a54869789f450a12075d30960b2"
+    },
+    {
+      "path": "release/python/third-party/idna/idna-3.20.dist-info/licenses/LICENSE.md",
+      "bytes": 1541,
+      "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+    },
+    {
+      "path": "release/python/third-party/itsdangerous/itsdangerous-2.2.0.dist-info/LICENSE.txt",
+      "bytes": 1475,
+      "sha256": "63af09891b6be8ad1a4252ed43af0f4efba7fc948e228367bed7f3c5ae0b09d7"
+    },
+    {
+      "path": "release/python/third-party/jinja2/jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+      "bytes": 1475,
+      "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+    },
+    {
+      "path": "release/python/third-party/joblib/joblib-1.6.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 1527,
+      "sha256": "42612911c1872c5e4b43f6ae0e8ee59467cd350332241cf72ce90640264fae6a"
+    },
+    {
+      "path": "release/python/third-party/lazy-loader/lazy_loader-0.6.dist-info/licenses/LICENSE.md",
+      "bytes": 1539,
+      "sha256": "797b6937a4f976836efbbbb3ae333d7866ddc3eb3cb152972b2be348d3529372"
+    },
+    {
+      "path": "release/python/third-party/librosa/librosa-0.11.0.dist-info/LICENSE.md",
+      "bytes": 766,
+      "sha256": "1746ca32b53fa31941c38b63a986e4126ab998e81a2f73a566000847a588e2a3"
+    },
+    {
+      "path": "release/python/third-party/llvmlite/llvmlite-0.50.0.dist-info/LICENSE",
+      "bytes": 1309,
+      "sha256": "7d6aa93e52a7ae9a995ff6a40c0ea5628311cdf1bd8dcd29c8ce9181f4af3a81"
+    },
+    {
+      "path": "release/python/third-party/llvmlite/llvmlite-0.50.0.dist-info/LICENSE.thirdparty",
+      "bytes": 12786,
+      "sha256": "7b564c7af9ab446d245ba66adc8cda2f61d1d162f842899557499e80b715993a"
+    },
+    {
+      "path": "release/python/third-party/markupsafe/markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+      "bytes": 1503,
+      "sha256": "4631ec0db5fd90a547e336817264c6798214338146f8ac94b4a57f96ee8c9ec4"
+    },
+    {
+      "path": "release/python/third-party/msgpack/msgpack-1.2.3.dist-info/licenses/COPYING",
+      "bytes": 628,
+      "sha256": "4fbdff42eba4593c16f7a7ea7078883b2b734870a1e2b636284ce2dce62bf4f7"
+    },
+    {
+      "path": "release/python/third-party/narwhals/narwhals-2.27.1.dist-info/licenses/LICENSE.md",
+      "bytes": 1082,
+      "sha256": "811445f30147b8f0c9d444c9025fd528f9532c54b7b83f6e2368473dc91cfdf0"
+    },
+    {
+      "path": "release/python/third-party/numba/numba-0.68.0.dist-info/licenses/LICENSE",
+      "bytes": 1310,
+      "sha256": "5f7ae5e48a0a107a9d86a9ef6c18dcce68e55959855d39380050deaea366631c"
+    },
+    {
+      "path": "release/python/third-party/numba/numba-0.68.0.dist-info/licenses/LICENSES.third-party",
+      "bytes": 26891,
+      "sha256": "e5ea3f50f1c1aa518a86903b85dfd40c4765589998eb683b9382d111d91bb9ee"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy/_core/include/numpy/random/LICENSE.txt",
+      "bytes": 1039,
+      "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy/ma/LICENSE",
+      "bytes": 1616,
+      "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy/random/LICENSE.md",
+      "bytes": 3582,
+      "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/LICENSE.txt",
+      "bytes": 45831,
+      "sha256": "a804dff0ead9fadc5293456410bcbfc32bf024be9c4513459663fb7b442d2341"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt",
+      "bytes": 1039,
+      "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING",
+      "bytes": 704,
+      "sha256": "aea41976c720f91bd19725c16916a1ace40eb1ea42620d340e587a5de4bbcea0"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/src/highway/LICENSE",
+      "bytes": 21155,
+      "sha256": "d208152e2777ffd0126eacc1bd21c0320d69e4e6b622d21a2a12a47e8ef73763"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt",
+      "bytes": 1441,
+      "sha256": "b0fd592d4ead563148e3977e7b589169d46a5ef2ff133c755a81af880a3fc919"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md",
+      "bytes": 1542,
+      "sha256": "a732977853530066790c42817087f4829b518dd98d340c916acbfd227e39d3cb"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE",
+      "bytes": 1573,
+      "sha256": "585483905b13d4b42f800c55ba99e89d6e2e33ccd5f503e201c07531d148ff41"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md",
+      "bytes": 1523,
+      "sha256": "8db000e158c162e7249787852d8c69764706502ccee725c06641b31c1e95c8af"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt",
+      "bytes": 2314,
+      "sha256": "19060ef465e1797d682ee0fc3081bd25ab1395e995e43d25c9d13c95d9a3cd6b"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/ma/LICENSE",
+      "bytes": 1616,
+      "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/LICENSE.md",
+      "bytes": 3582,
+      "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/distributions/LICENSE.md",
+      "bytes": 2805,
+      "sha256": "cf5619f25b112d5ce7c896efffc8e610bcb345dfadcc19f2c1460aa48fff2c9e"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md",
+      "bytes": 2986,
+      "sha256": "92c10699884321f1c2947fe2a70ab23b0fbf1507f756d89dd08f38c61fc3d4fa"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md",
+      "bytes": 1176,
+      "sha256": "41190663b77bee5302386495a07b7eabfbfa571aa0ae2f11da6764162062fc4f"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/philox/LICENSE.md",
+      "bytes": 1540,
+      "sha256": "322ac46d870c8aeead6c53adcccc839296fb3c8e456eae155081297daf7f8013"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md",
+      "bytes": 1253,
+      "sha256": "28cad82ce1379dc529df30da78ec012d7d0d1d576b03ddcb93388aee53659f59"
+    },
+    {
+      "path": "release/python/third-party/numpy/numpy-2.4.6.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md",
+      "bytes": 340,
+      "sha256": "454ec7350e478e037061850b67395753b425b1cb0a34bbc26290b020bf89d763"
+    },
+    {
+      "path": "release/python/third-party/onnxruntime/onnxruntime/LICENSE",
+      "bytes": 1094,
+      "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674"
+    },
+    {
+      "path": "release/python/third-party/onnxruntime/onnxruntime/ThirdPartyNotices.txt",
+      "bytes": 344457,
+      "sha256": "c53a76501ef60db6f865f20599f220761201ac4057683acefdab37d861b86622"
+    },
+    {
+      "path": "release/python/third-party/packaging/packaging-26.3.dist-info/licenses/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+    },
+    {
+      "path": "release/python/third-party/packaging/packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "path": "release/python/third-party/packaging/packaging-26.3.dist-info/licenses/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+    },
+    {
+      "path": "release/python/third-party/pedalboard/pedalboard-0.9.26.dist-info/licenses/LICENSE",
+      "bytes": 35823,
+      "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+    },
+    {
+      "path": "release/python/third-party/pedalboard/pedalboard-0.9.26.dist-info/licenses/NOTICE",
+      "bytes": 589,
+      "sha256": "922c2088eca7485bdae5dbdaf636c1ba91879abc6285ac5b0d602c24d199ce5b"
+    },
+    {
+      "path": "release/python/third-party/pefile/pefile-2024.8.26.dist-info/LICENSE",
+      "bytes": 1083,
+      "sha256": "b44409c067c6da52bfb54bb6624fb11a7b52157c3a13ae1400232f8196e86ad3"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/cachecontrol/LICENSE.txt",
+      "bytes": 558,
+      "sha256": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/certifi/LICENSE",
+      "bytes": 989,
+      "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/distlib/LICENSE.txt",
+      "bytes": 14531,
+      "sha256": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/distro/LICENSE",
+      "bytes": 11325,
+      "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/idna/LICENSE.md",
+      "bytes": 1541,
+      "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/msgpack/COPYING",
+      "bytes": 614,
+      "sha256": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/packaging/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/packaging/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/packaging/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/pkg_resources/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/platformdirs/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/pygments/LICENSE",
+      "bytes": 1331,
+      "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/pyproject_hooks/LICENSE",
+      "bytes": 1081,
+      "sha256": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/requests/LICENSE",
+      "bytes": 10142,
+      "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/resolvelib/LICENSE",
+      "bytes": 751,
+      "sha256": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/rich/LICENSE",
+      "bytes": 1056,
+      "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/tomli/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/tomli_w/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/truststore/LICENSE",
+      "bytes": 1086,
+      "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca"
+    },
+    {
+      "path": "release/python/third-party/pip/pip/_vendor/urllib3/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/AUTHORS.txt",
+      "bytes": 12139,
+      "sha256": "4eb1fb1705e2def898e81bcba19c3aac80620d27ba3569d6a6df7b4629d1b5c2"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/cachecontrol/LICENSE.txt",
+      "bytes": 558,
+      "sha256": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/certifi/LICENSE",
+      "bytes": 989,
+      "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distlib/LICENSE.txt",
+      "bytes": 14531,
+      "sha256": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distro/LICENSE",
+      "bytes": 11325,
+      "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md",
+      "bytes": 1541,
+      "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/msgpack/COPYING",
+      "bytes": 614,
+      "sha256": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pkg_resources/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/platformdirs/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pygments/LICENSE",
+      "bytes": 1331,
+      "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pyproject_hooks/LICENSE",
+      "bytes": 1081,
+      "sha256": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/requests/LICENSE",
+      "bytes": 10142,
+      "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/resolvelib/LICENSE",
+      "bytes": 751,
+      "sha256": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/rich/LICENSE",
+      "bytes": 1056,
+      "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli_w/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/truststore/LICENSE",
+      "bytes": 1086,
+      "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca"
+    },
+    {
+      "path": "release/python/third-party/pip/pip-26.2.2.dist-info/licenses/src/pip/_vendor/urllib3/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
+    },
+    {
+      "path": "release/python/third-party/platformdirs/platformdirs-4.13.5.dist-info/licenses/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+    },
+    {
+      "path": "release/python/third-party/pooch/pooch-1.9.0.dist-info/licenses/AUTHORS.md",
+      "bytes": 3225,
+      "sha256": "6400dc5b23d3c56c955ab82c44fe49db242d4d9a6d9b80f5575d8b9ccdbc4631"
+    },
+    {
+      "path": "release/python/third-party/pooch/pooch-1.9.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 1496,
+      "sha256": "af0482d59fc7a9d68d9f64682c74ce6e8a4684406bb3a21a191ae329950916b4"
+    },
+    {
+      "path": "release/python/third-party/protobuf/protobuf-7.36.2.dist-info/LICENSE",
+      "bytes": 1732,
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d"
+    },
+    {
+      "path": "release/python/third-party/pycparser/pycparser-3.11.dist-info/licenses/LICENSE",
+      "bytes": 1543,
+      "sha256": "0a9e78156ae8b96caf1b4f11ac2df424b83de29736f9e757630548a6272fdf90"
+    },
+    {
+      "path": "release/python/third-party/pyinstaller/pyinstaller-6.22.3.dist-info/licenses/COPYING.txt",
+      "bytes": 32604,
+      "sha256": "0598064c7d2718e38d7914a7d08343b2fa008e3bea9ebba2aa7a6ffa5900dd64"
+    },
+    {
+      "path": "release/python/third-party/pyinstaller-hooks-contrib/pyinstaller_hooks_contrib-2026.9.dist-info/licenses/LICENSE",
+      "bytes": 27666,
+      "sha256": "91d0baaff00773038e72c0a1fc9d5d2d38706b7a2b9c04f34296608f931b9cd0"
+    },
+    {
+      "path": "release/python/third-party/pypinyin/pypinyin-0.55.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 1105,
+      "sha256": "1e6c90014b4912815c296ee64bb6f6280af47e6d4c5d80e86232dfc5defe764c"
+    },
+    {
+      "path": "release/python/third-party/pywin32-ctypes/pywin32_ctypes-0.2.3.dist-info/LICENSE.txt",
+      "bytes": 1644,
+      "sha256": "dfa83b3e2709adfcdb838d9ad55823ca674abb780e60563d9dd9544ccbf785e9"
+    },
+    {
+      "path": "release/python/third-party/pyyaml/pyyaml-6.0.3.dist-info/licenses/LICENSE",
+      "bytes": 1101,
+      "sha256": "8d3928f9dc4490fd635707cb88eb26bd764102a7282954307d3e5167a577e8a4"
+    },
+    {
+      "path": "release/python/third-party/requests/requests-2.34.2.dist-info/licenses/LICENSE",
+      "bytes": 10142,
+      "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+    },
+    {
+      "path": "release/python/third-party/requests/requests-2.34.2.dist-info/licenses/NOTICE",
+      "bytes": 38,
+      "sha256": "f5110972dedad2b4e9d314518daf3b7d72d6e02e499acd802181de6f74571dcc"
+    },
+    {
+      "path": "release/python/third-party/scikit-learn/scikit_learn-1.9.1.dist-info/licenses/COPYING",
+      "bytes": 2629,
+      "sha256": "014b1b1ad74cf00997f7081a1635c3c203cd70c08f39c13d9a39347fcd464979"
+    },
+    {
+      "path": "release/python/third-party/scikit-learn/sklearn/externals/array_api_compat/LICENSE",
+      "bytes": 1118,
+      "sha256": "464569596b7e6162762669e4e4d1fe8d2618c03901ca7ba36e2603415fb6865d"
+    },
+    {
+      "path": "release/python/third-party/scikit-learn/sklearn/externals/array_api_extra/LICENSE",
+      "bytes": 1118,
+      "sha256": "8b2e8a4aa8a98ed811f17be2807b1eb90dcb021c1e5a0304d784d0a24f4ee907"
+    },
+    {
+      "path": "release/python/third-party/scipy/scipy/_lib/_uarray/LICENSE",
+      "bytes": 1543,
+      "sha256": "e4c4acc31e8287066d7c995d26e3ef902ca1977ee187b260b11c278366503811"
+    },
+    {
+      "path": "release/python/third-party/scipy/scipy/fft/_pocketfft/LICENSE.md",
+      "bytes": 1523,
+      "sha256": "c04661685cff9d8035fe1c4c3ab357e7f7633cafc06a73e9d90c3c5fede8a86a"
+    },
+    {
+      "path": "release/python/third-party/scipy/scipy/integrate/LICENSE_DOP",
+      "bytes": 3648,
+      "sha256": "6cc2ed6e35b8f376ff3d8f86aeef4e0c34c2309bd6f4a0565936d577839ba023"
+    },
+    {
+      "path": "release/python/third-party/scipy/scipy/spatial/qhull_src/COPYING_QHULL.txt",
+      "bytes": 1759,
+      "sha256": "2a6ebb495e26dd5f88cbc40c593733da6edb27b64936f70409cd5a1acafb1c32"
+    },
+    {
+      "path": "release/python/third-party/scipy/scipy-1.17.1.dist-info/LICENSE.txt",
+      "bytes": 46756,
+      "sha256": "564d63dbef2ef3eb1dec94908966d3edf5f11c487ee2cf2baf8bf3faef01bdd9"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/autocommand-2.2.2.dist-info/LICENSE",
+      "bytes": 7634,
+      "sha256": "ade78d04982d69972d444a8e14a94f87a2334dd3855cc80348ea8e240aa0df2d"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/backports.tarfile-1.2.0.dist-info/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
+      "bytes": 10278,
+      "sha256": "458502e12d97bbf64438606a20044aa85eb05fb0a8a807bb35dbec253fd1fc04"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/jaraco.text-4.0.0.dist-info/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+      "bytes": 1076,
+      "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+      "bytes": 1076,
+      "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/more_itertools-10.8.0.dist-info/licenses/LICENSE",
+      "bytes": 1053,
+      "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/platformdirs-4.4.0.dist-info/licenses/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/tomli-2.4.0.dist-info/licenses/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/wheel-0.46.3.dist-info/licenses/LICENSE.txt",
+      "bytes": 1107,
+      "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/_vendor/zipp-3.23.0.dist-info/licenses/LICENSE",
+      "bytes": 1076,
+      "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/config/_validate_pyproject/NOTICE",
+      "bytes": 18737,
+      "sha256": "09c9bcea95ca086f8bc5bed174e40bc835b297d40fb5f86bbbb570fe0a5581a7"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools/config/NOTICE",
+      "bytes": 493,
+      "sha256": "2dddf08818297a3b89d43d95ff659d8da85741108c9136dfa3a4d856c0623bd8"
+    },
+    {
+      "path": "release/python/third-party/setuptools/setuptools-84.2.1.dist-info/licenses/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+    },
+    {
+      "path": "release/python/third-party/soundfile/_soundfile_data/COPYING",
+      "bytes": 26518,
+      "sha256": "ad01ea5cd2755f6048383c8d54c88459cd6fcb17757c5c8892f8c5ea060f6140"
+    },
+    {
+      "path": "release/python/third-party/soundfile/licensing/license_notes.md",
+      "bytes": 2631,
+      "sha256": "35630e1f59b5c54b0bcbe2ec173bcf5a63b727a6e2f7834ca6d35a1af91a2b5f"
+    },
+    {
+      "path": "release/python/third-party/soundfile/soundfile-0.14.0.dist-info/LICENSE",
+      "bytes": 1512,
+      "sha256": "0dd2e411fed553ba891845077e5a32c5b726d1bbc46ff31a2118ae1ccf816752"
+    },
+    {
+      "path": "release/python/third-party/soxr/soxr-1.1.0.dist-info/licenses/COPYING.LGPL",
+      "bytes": 26934,
+      "sha256": "317dfba8116739654c8c2d8acbc9c7edfcf34e3932e7a4b15307435228f98c3a"
+    },
+    {
+      "path": "release/python/third-party/soxr/soxr-1.1.0.dist-info/licenses/LICENSE-libsoxr.txt",
+      "bytes": 1047,
+      "sha256": "73b946c198ad27fc2ae7bea2de6ec6d1b6c0733340d1759a450150271347e5af"
+    },
+    {
+      "path": "release/python/third-party/soxr/soxr-1.1.0.dist-info/licenses/LICENSE-PFFFT.txt",
+      "bytes": 2174,
+      "sha256": "7847a2f45a0da613240a7e542980677c16613b1c8258190c15f8bf275032bb2d"
+    },
+    {
+      "path": "release/python/third-party/soxr/soxr-1.1.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 728,
+      "sha256": "16ce7f03077f25fac6a9b89fdf6136927595f6b85db9197381ee99c1ecba357b"
+    },
+    {
+      "path": "release/python/third-party/THIRD-PARTY-INVENTORY.json",
+      "bytes": 116336,
+      "sha256": "0bc1922eeb9d70cc777d71cf952f4c629b0f8bc900d1912ca30cfaf3bd966034"
+    },
+    {
+      "path": "release/python/third-party/THIRD-PARTY-NOTICE.txt",
+      "bytes": 656,
+      "sha256": "a78b6441aa4d107bf051ff8109a3f9e046f65e18091b406efd48f43acc891dce"
+    },
+    {
+      "path": "release/python/third-party/threadpoolctl/threadpoolctl-3.7.0.dist-info/licenses/LICENSE",
+      "bytes": 1507,
+      "sha256": "81ac619075248b06e53660b652d10e485f4675f5d0ae0f97ea22370da1f7e23b"
+    },
+    {
+      "path": "release/python/third-party/typing-extensions/typing_extensions-4.16.0.dist-info/licenses/LICENSE",
+      "bytes": 13936,
+      "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+    },
+    {
+      "path": "release/python/third-party/urllib3/urllib3-2.8.0.dist-info/licenses/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
+    },
+    {
+      "path": "release/python/third-party/waitress/waitress-3.0.2.dist-info/LICENSE.txt",
+      "bytes": 2070,
+      "sha256": "3e671db11df687516cc1db5b3d65e4aa383eaca3c20cea3faf53a0f7335d0a3c"
+    },
+    {
+      "path": "release/python/third-party/werkzeug/werkzeug/debug/shared/ICON_LICENSE.md",
+      "bytes": 222,
+      "sha256": "0e103a6358149792707e0d0d14df518f8556213b7cb54c7422f7467f4bb1f7eb"
+    },
+    {
+      "path": "release/python/third-party/werkzeug/werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+      "bytes": 1475,
+      "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+    },
+    {
+      "path": "release/python/THIRD-PARTY-NOTICE.txt",
+      "bytes": 1500,
+      "sha256": "11e904fd4e9a1d1def7ec132bd1d691016f1543fab6f8176de27299878b66896"
+    }
+  ],
+  "pedalboard_source_status": {
+    "distribution": "pedalboard",
+    "version": "0.9.26",
+    "installed_artifact": "pedalboard-0.9.26-cp311-cp311-win_amd64.whl",
+    "installed_artifact_sha256": "f5b7d4f72b45d01c39d7d5c5024d5fd091709e72d4e9bc97acd9225fc0d9ce83",
+    "upstream_tag": "v0.9.26",
+    "source_archive": "pedalboard-0.9.26-source.tar.gz",
+    "source_archive_sha256": "668e7ebab9b34c396fd750cb29262641c0f8082057a61dacde68542bfedeb67a",
+    "upstream_gitlinks_from_GitHub_contents_API": {
+      "JUCE": "ddaa09110392a4419fecbb6d3022bede89b7e841",
+      "vendors/rubberband": "2be46b0dffb13273a67396c77bc9278736bb03d2",
+      "vendors/lame": "1f5cc9487284d5950343aa5d4f70de433468070a",
+      "vendors/libgsm": "98f1708fb5e06a0dfebd58a3b40d610823db9715",
+      "vendors/pybind11": "0c69e1eb2177fa8f8580632c7b1f97fdb606ce8f"
+    },
+    "submodule_sources": "pedalboard-submodules/SUBMODULE-INVENTORY.json",
+    "submodule_license_texts": "pedalboard-submodules/SUBMODULE-LICENSES.json",
+    "source_status": "Tag source and all five exact gitlink commit source archives have been downloaded, with preserved license texts and hashes. This is an upstream source candidate; no assertion that it is the exact corresponding source used to produce the PyPI Windows wheel, and no legal determination of compliance. Independently review required build scripts, linked native sources/notices, and obligations before redistribution."
+  },
+  "distribution_gate": "Upstream source candidates only; exact Windows wheel corresponding-source completeness not established. Do not publish installer until obligations reviewed."
+}

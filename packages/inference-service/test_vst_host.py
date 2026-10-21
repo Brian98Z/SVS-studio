@@ -1,5 +1,5 @@
 """Focused regressions for filesystem-only discovery and safe VST API contracts."""
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 from types import SimpleNamespace
 
@@ -36,8 +36,46 @@ def test_validated_path_resolves_project_plugins_and_rejects_escape(tmp_path, mo
     assert vst_host._validated_bundle("plugins/plugin.vst3") == binary.resolve()
     assert vst_host._validated_bundle("plugin.vst3") == binary.resolve()
     assert vst_host._validated_bundle(str(bundle)) == bundle.resolve()
+    assert vst_host.resolve_plugin_path(str(binary)) == binary.resolve()
+    with pytest.raises(vst_host.VSTHostError, match="inside"):
+        vst_host._validated_bundle(str(tmp_path / "outside.vst3"))
     with pytest.raises(vst_host.VSTHostError, match="inside"):
         vst_host._validated_bundle("../outside.vst3")
+
+@pytest.mark.parametrize("path", [
+    r"\\server\share\plugin.vst3",
+    r"//server/share/plugin.vst3",
+    r"\\?\C:\plugins\plugin.vst3",
+    r"\\.\PhysicalDrive0",
+    "C:plugin.vst3",
+])
+def test_resolver_rejects_untrusted_windows_path_forms_before_filesystem_access(path, tmp_path, monkeypatch):
+    monkeypatch.setenv("SVS_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(vst_host, "plugin_directory", lambda: pytest.fail("filesystem root resolved"))
+    with pytest.raises(vst_host.VSTHostError):
+        vst_host.resolve_plugin_path(path)
+
+
+def test_windows_absolute_path_syntax_is_classified_even_on_posix():
+    assert PureWindowsPath(r"C:\plugins\plugin.vst3").is_absolute()
+    assert not PureWindowsPath("C:plugin.vst3").is_absolute()
+
+
+def test_symlink_escape_is_rejected_before_worker_start(tmp_path, monkeypatch):
+    root = tmp_path / "plugins"
+    root.mkdir()
+    outside = tmp_path / "outside.vst3"
+    outside.write_bytes(b"not loaded")
+    try:
+        (root / "escape.vst3").symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
+    monkeypatch.setenv("SVS_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(vst_host, "_run_worker", lambda *args, **kwargs: pytest.fail("worker started"))
+    with pytest.raises(vst_host.VSTHostError, match="inside"):
+        vst_host.inspect_effect("escape.vst3")
 
 
 class FakePlugin:
@@ -113,6 +151,7 @@ def test_state_capture_requires_native_preset_api():
 def test_process_validates_before_starting_native_worker(tmp_path, monkeypatch):
     binary = tmp_path / "plugin.vst3"
     binary.write_bytes(b"placeholder")
+    monkeypatch.setenv("SVS_PLUGIN_DIR", str(tmp_path))
     monkeypatch.setattr(vst_host, "_run_worker", lambda *args, **kwargs: pytest.fail("worker started"))
     with pytest.raises(vst_host.VSTHostError, match="tail_seconds"):
         vst_host.process_effect(str(binary), np.zeros((2, 8), np.float32), 48000, tail_seconds=10.1)

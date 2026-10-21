@@ -186,6 +186,8 @@ def _request(url, method, headers, username, password, source=None, sink=None, l
                     if not block: break
                     conn.send(block)
         response = conn.getresponse()
+        if sink is not None and response.status != 200:
+            return response.status, {k.casefold(): v for k, v in response.getheaders()}, b""
         if sink is not None:
             size = 0
             close_sink = isinstance(sink, (str, os.PathLike))

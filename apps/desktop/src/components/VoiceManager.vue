@@ -16,6 +16,56 @@ const inspected = ref(null)
 const catalog = ref(null)
 const installJob = ref(null)
 const acceptedTerms = ref(false)
+const distribution = ref({ endpoint: '', username: '', password: '', configured: false, packages: [] })
+const distributionTermsViewed = ref({})
+const distributionJob = ref(null)
+const distributionBusy = ref(false)
+const distributionTerms = ref({})
+const distributionLoading = ref(true)
+let distributionInstallTimer = null
+const distributionTermsContent = ref({})
+const distributionTermsUrls = new Set()
+let distributionRevision = 0
+function distributionFingerprint(item) {
+  return `${distribution.value.endpoint}\n${item.id}\n${item.sha256}\n${item.terms_sha256}`
+}
+function clearDistributionReview() {
+  distributionRevision += 1
+  for (const url of distributionTermsUrls) URL.revokeObjectURL(url)
+  distributionTermsUrls.clear()
+  distributionTerms.value = {}
+  distributionTermsViewed.value = {}
+  distributionTermsContent.value = {}
+}
+async function reviewDistributionTerms(item) {
+  const revision = distributionRevision
+  const fingerprint = distributionFingerprint(item)
+  try {
+    const result = await call(`/distribution/terms/${encodeURIComponent(item.id)}`)
+    if (disposed || revision !== distributionRevision || distributionFingerprint(item) !== fingerprint) return
+    if (result.sha256 !== item.terms_sha256) throw new Error('许可材料已变更，请刷新目录后重新阅读。')
+    distributionTerms.value[item.id] = false
+    distributionTermsViewed.value[item.id] = false
+    const previous = distributionTermsContent.value[item.id]?.url
+    if (previous) { URL.revokeObjectURL(previous); distributionTermsUrls.delete(previous) }
+    const binary = atob(result.content)
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+    const blob = new Blob([bytes], { type: result.content_type || 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    distributionTermsUrls.add(url)
+    if ((result.content_type || '').toLowerCase().startsWith('text/plain')) {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      distributionTermsContent.value[item.id] = { kind: 'text', text, url, fingerprint }
+    } else if ((result.content_type || '').toLowerCase() === 'application/pdf') {
+      distributionTermsContent.value[item.id] = { kind: 'pdf', text: '', url, fingerprint }
+    } else {
+      URL.revokeObjectURL(url)
+      distributionTermsUrls.delete(url)
+      throw new Error('此许可材料格式不支持内嵌预览；请管理员提供纯文本或 PDF 文件。')
+    }
+    if (distributionTermsContent.value[item.id].kind === 'text') distributionTermsViewed.value[item.id] = fingerprint
+  } catch (e) { error.value = `无法读取原始许可材料：${e.message}` }
+}
 const installBusy = ref(false)
 let installPollTimer = null
 let disposed = false
@@ -131,6 +181,70 @@ async function startInstall() {
   } catch (e) { error.value = `无法开始声库安装：${e.message}` }
   finally { installBusy.value = false }
 }
+async function loadDistribution() {
+  try {
+    const state = await call('/distribution/status')
+    distribution.value.endpoint = state.endpoint || ''
+    distribution.value.username = state.username || ''
+    distribution.value.configured = state.configured === true
+    distributionJob.value = state.job
+    if (state.configured) await refreshDistributionCatalog()
+    scheduleDistributionPoll()
+  } catch (e) { error.value = `无法读取声库分发配置：${e.message}` }
+  finally { distributionLoading.value = false }
+}
+async function configureDistribution() {
+  distributionBusy.value = true
+  clearDistributionReview()
+  distribution.value.packages = []
+  try {
+    const result = await call('/distribution/configure', { method: 'POST', body: JSON.stringify({ endpoint: distribution.value.endpoint.trim(), username: distribution.value.username.trim(), password: distribution.value.password }) })
+    distribution.value.password = ''
+    distribution.value.configured = result.configured
+    await refreshDistributionCatalog()
+    error.value = ''
+  } catch (e) { error.value = `无法配置受信任声库服务：${e.message}` }
+  finally { distributionBusy.value = false }
+}
+async function disconnectDistribution() {
+  if (!window.confirm('断开当前受信任声库服务并清除本机保存的服务令牌？')) return
+  distributionBusy.value = true
+  clearDistributionReview()
+  try { await call('/distribution/disconnect', { method: 'POST' }); distribution.value.configured = false; distribution.value.packages = []; distributionJob.value = null }
+  catch (e) { error.value = e.message }
+  finally { distributionBusy.value = false }
+}
+async function refreshDistributionCatalog() {
+  clearDistributionReview()
+  try { distribution.value.packages = (await call('/distribution/catalog')).packages || []; error.value = '' }
+  catch (e) { distribution.value.packages = []; error.value = `无法读取审核发布的声库：${e.message}` }
+}
+async function installDistribution(item) {
+  if (!distributionTerms.value[item.id] || distributionTermsViewed.value[item.id] !== distributionFingerprint(item) || distributionBusy.value) return
+  distributionBusy.value = true
+  try {
+    distributionJob.value = await call('/distribution/install', { method: 'POST', body: JSON.stringify({ package_id: item.id, accepted_terms: true,
+      accepted_terms_sha256: item.terms_sha256, accepted_archive_sha256: item.sha256 }) })
+    scheduleDistributionPoll()
+  } catch (e) { error.value = `无法安装分发声库：${e.message}` }
+  finally { distributionBusy.value = false }
+}
+function stopDistributionPolling() {
+  if (distributionInstallTimer !== null) { clearTimeout(distributionInstallTimer); distributionInstallTimer = null }
+}
+function scheduleDistributionPoll() {
+  stopDistributionPolling()
+  if (!disposed && activeInstallStates.includes(distributionJob.value?.state)) distributionInstallTimer = setTimeout(pollDistributionInstall, 1200)
+}
+async function pollDistributionInstall() {
+  distributionInstallTimer = null
+  if (disposed) return
+  try {
+    distributionJob.value = (await call('/distribution/install')).job
+    if (distributionJob.value?.state === 'completed') await refresh()
+  } catch (e) { error.value = `无法读取分发安装进度：${e.message}` }
+  scheduleDistributionPoll()
+}
 async function refresh() {
   try {
     const response = await Promise.all([call(), fetch(apiUrl('/api/inference/hardware')).then(r => r.ok ? r.json() : null).catch(() => null)])
@@ -166,10 +280,15 @@ async function remove(voice) {
   finally { busy.value = false }
 }
 onMounted(async () => {
-  await Promise.all([refresh(), loadCatalog()])
-  await pollInstall()
+  await Promise.all([refresh(), loadCatalog(), loadDistribution()])
+  await Promise.all([pollInstall(), pollDistributionInstall()])
 })
-onUnmounted(() => { disposed = true; stopInstallPolling() })
+onUnmounted(() => {
+  disposed = true
+  stopInstallPolling()
+  stopDistributionPolling()
+  clearDistributionReview()
+})
 </script>
 
 <template>
@@ -201,6 +320,44 @@ onUnmounted(() => { disposed = true; stopInstallPolling() })
         <p v-if="installJob.resumed_bytes > 0">本次从 {{ formatBytes(installJob.resumed_bytes) }} 断点恢复</p>
         <p v-if="installJob.error" class="error">{{ installJob.error }}</p>
         <p v-if="installJob.state === 'completed'">安装完成：{{ installJob.destination }}。仍需配置运行时依赖并为声库绑定兼容 vocoder；尚未验证合成。</p>
+      </div>
+    </article>
+    <article class="distribution-install">
+      <h3>受信任的自建声库服务</h3>
+      <p>仅配置你明确管理或信任的服务端点。HTTPS 必需；明文 HTTP 仅允许本机 loopback。安装仅使用审核发布的原始包及完整性校验，不会自动执行模型或授予商业/再分发权利。</p>
+      <form @submit.prevent="configureDistribution">
+        <label>服务端点<input v-model.trim="distribution.endpoint" required placeholder="https://voice.example 或 http://127.0.0.1:8765" :disabled="distributionLoading || distributionBusy" /></label>
+        <label>用户名<input v-model.trim="distribution.username" required autocomplete="username" :disabled="distributionLoading || distributionBusy" /></label>
+        <label>密码<input v-model="distribution.password" type="password" required autocomplete="current-password" :disabled="distributionLoading || distributionBusy" /></label>
+        <button :disabled="distributionLoading || distributionBusy || !distribution.endpoint || !distribution.username || !distribution.password">{{ distributionLoading ? '读取配置…' : distributionBusy ? '正在连接…' : '验证并信任此端点' }}</button>
+      </form>
+      <p v-if="distribution.configured" class="caution">已信任：{{ distribution.endpoint }} · {{ distribution.username }}。密码不会保存在前端；令牌仅由本机 DPAPI 保护并与项目同步凭据隔离。</p>
+      <button v-if="distribution.configured" :disabled="distributionBusy" @click="refreshDistributionCatalog">刷新已审核目录</button>
+      <button v-if="distribution.configured" :disabled="distributionBusy" @click="disconnectDistribution">断开并清除令牌</button>
+      <article v-for="item in distribution.packages" :key="item.id" class="distribution-package">
+        <strong>{{ item.title }} · {{ item.version }}</strong>
+        <p>{{ formatBytes(item.byte_length) }} · SHA-256 <code>{{ item.sha256 }}</code></p>
+        <p>权利说明（不构成新授权）：{{ item.rights_statement }}</p>
+        <button :disabled="distributionBusy" @click="reviewDistributionTerms(item)">查看原始许可材料（SHA-256 校验）</button>
+        <section v-if="distributionTermsContent[item.id]" class="terms-viewer" aria-live="polite">
+          <template v-if="distributionTermsContent[item.id].kind === 'text'">
+            <strong>已校验原始许可材料（SHA-256 {{ item.terms_sha256 }}）</strong>
+            <pre>{{ distributionTermsContent[item.id].text }}</pre>
+          </template>
+          <template v-else>
+            <strong>已校验 PDF 原始许可材料（SHA-256 {{ item.terms_sha256 }}）</strong>
+            <a :href="distributionTermsContent[item.id].url" :download="`${item.title}-license.pdf`" @click="distributionTermsViewed[item.id] = distributionTermsContent[item.id].fingerprint">下载并阅读 PDF 许可材料</a>
+            <p>请打开并阅读下载的 PDF 后，再勾选下方确认框。</p>
+          </template>
+        </section>
+        <label class="accept"><input v-model="distributionTerms[item.id]" type="checkbox" :disabled="distributionTermsViewed[item.id] !== distributionFingerprint(item)" />我已阅读服务端所附原始许可材料，并自行确认其适用范围；此确认不授予任何额外权利。</label>
+        <button :disabled="!distributionTerms[item.id] || distributionTermsViewed[item.id] !== distributionFingerprint(item) || distributionBusy || activeInstallStates.includes(distributionJob?.state)" @click="installDistribution(item)">安装此已审核原包</button>
+      </article>
+      <div v-if="distributionJob" class="install-status" aria-live="polite">
+        <strong>自建分发安装：{{ distributionJob.state }}</strong>
+        <p v-if="distributionJob.state === 'downloading'">{{ formatBytes(distributionJob.downloaded_bytes) }} / {{ formatBytes(distributionJob.total_bytes) }}</p>
+        <p v-if="distributionJob.error" class="error">{{ distributionJob.error }}</p>
+        <p v-if="distributionJob.state === 'completed'">安装完成：{{ distributionJob.destination }}。模型未自动加载或执行。</p>
       </div>
     </article>
     <article v-if="inspected" class="inspection">

@@ -15,7 +15,9 @@ mod interchange;
 mod mixing;
 mod rendering;
 mod audio_output;
+mod audio_windows;
 mod stems;
+mod local_access;
 
 use axum::routing::{get, patch, post};
 use axum::Router;
@@ -39,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/audio/output/devices", get(audio_output::devices))
         .route("/api/audio/output/open", post(audio_output::open))
         .route("/api/audio/output/{id}/pcm", post(audio_output::pcm))
+        .route("/api/audio/output/{id}/switch", post(audio_output::switch_device))
         .route("/api/audio/output/{id}", get(audio_output::status).delete(audio_output::close))
         .route("/api/project", get(handlers::get_project))
         .route("/api/project/new", post(handlers::new_project))
@@ -84,8 +87,9 @@ async fn main() -> anyhow::Result<()> {
             .allow_origin(axum::http::HeaderValue::from_static("http://tauri.localhost"))
             .allow_methods([axum::http::Method::GET, axum::http::Method::POST,
                 axum::http::Method::PATCH, axum::http::Method::DELETE])
-            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-audio-sequence")])
+            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-audio-sequence"), axum::http::HeaderName::from_static("x-audio-session-id")])
             .expose_headers(tower_http::cors::Any))
+        .layer(axum::middleware::from_fn(local_access::guard))
         .with_state(st);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8761));

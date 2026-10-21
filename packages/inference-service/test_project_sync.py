@@ -92,6 +92,31 @@ class ProjectSyncValidationTests(unittest.TestCase):
                 {"name": "song.svsbundle", "etag": '"valid"', "size": 42, "modified": None},
             ])
 
+    def test_failed_download_does_not_open_destination_sink(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"permission denied"
+                self.send_response(403)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        destination = Path(__file__).resolve().parent / f"must-not-be-created-{threading.get_ident()}"
+        try:
+            status, _, _ = sync._request(f"http://127.0.0.1:{server.server_port}/dav/file.svsbundle", "GET", {}, "user", "password", sink=destination)
+            self.assertEqual(status, 403)
+            self.assertFalse(destination.exists())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
 
 
 if __name__ == "__main__":

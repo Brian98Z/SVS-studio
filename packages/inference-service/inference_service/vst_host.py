@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
 
 import numpy as np
@@ -122,16 +122,30 @@ def plugin_directory() -> Path:
 def resolve_plugin_path(path: str | os.PathLike[str]) -> Path:
     if not isinstance(path, (str, os.PathLike)) or not os.fspath(path).strip():
         raise VSTHostError("A VST3 plugin path is required")
-    supplied = Path(path).expanduser()
-    if supplied.is_absolute():
-        return supplied.resolve()
-    parts = supplied.parts
-    if parts and parts[0].lower() == "plugins":
-        supplied = Path(*parts[1:])
+    raw = os.fspath(path).strip()
+    windows_path = PureWindowsPath(raw)
+    if raw.startswith("\\") and not raw.startswith("\\\\"):
+        raise VSTHostError("Rooted Windows plugin paths are not allowed")
+    if "\x00" in raw or any(":" in part for part in windows_path.parts[1 if windows_path.drive else 0:]):
+        raise VSTHostError("Malformed plugin paths are not allowed")
+    normalized = raw.replace("/", "\\").casefold()
+    if normalized.startswith(("\\\\", "\\??\\", "\\device\\")) or windows_path.drive.startswith("\\\\"):
+        raise VSTHostError("Network and Windows device plugin paths are not allowed")
+    if windows_path.drive and not windows_path.root:
+        raise VSTHostError("Drive-relative plugin paths are not allowed")
+    if windows_path.drive and os.name != "nt":
+        raise VSTHostError("Windows plugin paths are not valid on this platform")
+
+    supplied = Path(raw).expanduser()
     root = plugin_directory()
-    resolved = (root / supplied).resolve()
+    if not supplied.is_absolute():
+        parts = supplied.parts
+        if parts and parts[0].lower() == "plugins":
+            supplied = Path(*parts[1:])
+        supplied = root / supplied
+    resolved = supplied.resolve()
     if not resolved.is_relative_to(root):
-        raise VSTHostError("Relative plugin path must stay inside the project plugins directory")
+        raise VSTHostError("Plugin path must stay inside the project plugins directory")
     return resolved
 
 

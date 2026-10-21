@@ -48,36 +48,36 @@ function fail(message) {
   audioPort?.close()
   self.postMessage({ type: 'error', message })
 }
-function encode(buffer) {
-  const bytes = new Uint8Array(buffer)
-  let text = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return btoa(text)
-}
 async function pump() {
   if (closed || busy || !queue.length) return
   busy = true
-  const blocks = queue.shift()
+  const samples = queue.shift()
   controller = new AbortController()
   try {
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, sequence: processed,
-        tracks: trackIds.map((id, i) => ({ id, audio_base64: encode(blocks[i]) })) }), signal: controller.signal })
-    const data = await response.json()
+    const response = await fetch(endpoint, { method: 'POST', headers: {
+      'Content-Type': 'application/octet-stream', 'X-Audio-Session-Id': sessionId,
+      'X-Audio-Sequence': String(processed)
+    }, body: samples, signal: controller.signal })
     if (closed) return
-    if (!response.ok) throw new Error(data.detail || data.error || response.statusText)
-    if (data.sequence !== processed || data.frames !== frames) throw new Error('原生混音器返回块序号或长度无效')
-    const raw = atob(data.audio_base64), bytes = new Uint8Array(raw.length)
-    if (raw.length !== frames * 8) throw new Error('原生混音器返回PCM长度无效')
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
-    if (deviceOutput) await sendDevice(bytes.buffer, processed)
-    else audioPort.postMessage({ type: 'output', samples: bytes.buffer }, [bytes.buffer])
+    if (!response.ok) {
+      let detail = response.statusText
+      try { const data = await response.json(); detail = data.detail || data.error || detail } catch {}
+      throw new Error(detail)
+    }
+    const sequence = Number(response.headers.get('X-Audio-Sequence'))
+    const responseFrames = Number(response.headers.get('X-Audio-Frames'))
+    if (sequence !== processed || responseFrames !== frames) throw new Error('原生混音器返回块序号或长度无效')
+    const output = await response.arrayBuffer()
+    if (output.byteLength !== frames * 8) throw new Error('原生混音器返回PCM长度无效')
+    if (deviceOutput) await sendDevice(output, processed)
+    else audioPort.postMessage({ type: 'output', samples: output }, [output])
     processed++
-    processingMs = Number(data.processing_ms) || 0
+    processingMs = Number(response.headers.get('X-Audio-Processing-Ms')) || 0
     report()
   } catch (error) {
     if (!closed) fail(error.message || String(error))
   } finally {
+    if (!closed) audioPort.postMessage({ type: 'recycle', samples }, [samples])
     busy = false
     controller = null
     if (!closed) pump()
@@ -94,14 +94,15 @@ self.onmessage = ({ data }) => {
     if (closed) return
     if (message.type === 'capture') {
       if (queue.length >= 5) { fail('原生混音器输入缓冲溢出；播放已停止以避免丢帧。'); return }
-      queue.push(message.blocks)
+      if (!(message.samples instanceof ArrayBuffer) || message.samples.byteLength !== frames * trackIds.length * 8) { fail('原生混音器输入PCM长度无效'); return }
+      queue.push(message.samples)
       pump()
     } else if (message.type === 'clock') {
       if (!deviceOutput) self.postMessage(message)
     } else if (message.type === 'underrun') {
       underruns++
       report(true)
-    } else if (message.type === 'overflow') fail('原生混音器输出缓冲溢出')
+    } else if (message.type === 'overflow') fail('原生混音器缓冲溢出；播放已停止以避免丢帧。')
   }
   audioPort.start()
   self.postMessage({ type: 'ready' })

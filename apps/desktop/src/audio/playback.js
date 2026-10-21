@@ -99,7 +99,7 @@ export class PlaybackEngine {
     if (deviceOutput) {
       this.deviceOpenPromise = (async () => {
         const opened = await fetch(apiUrl('/api/audio/output/open'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sample_rate: this.context.sampleRate, block_frames: this.nativeBlockFrames, target_blocks: this.nativeTargetBlocks, device_id: this.store.transport.output_device_id || null }) })
+          body: JSON.stringify({ sample_rate: this.context.sampleRate, block_frames: this.nativeBlockFrames, target_blocks: this.nativeTargetBlocks, device_id: this.store.transport.output_device_id || null, mode: this.store.transport.output_mode || 'shared' }) })
         output = await opened.json().catch(() => ({}))
         if (!opened.ok) throw new Error(output.detail || output.error || '无法打开原生声卡')
         if (!this.isCurrent(generation)) { await fetch(apiUrl(`/api/audio/output/${output.id}`), { method: 'DELETE' }); return }
@@ -109,6 +109,7 @@ export class PlaybackEngine {
       await this.deviceOpenPromise
       if (!this.isCurrent(generation)) return
       this.nativeStats.device = output.device
+      this.nativeStats.mode = output.mode
       this.nativeStats.output = 'device'
     } else this.nativeStats.output = 'browser'
     this.publishNativeStats()
@@ -195,6 +196,20 @@ export class PlaybackEngine {
     }
     this.closeNativeId(id)
   }
+
+  async switchOutputDevice(deviceId, sampleRate) {
+    const id = this.deviceOutputId, generation = this.generation
+    if (!id || !this.store.transport.playing) throw new Error('没有活动的原生输出；请停止后选择设备。')
+    if (sampleRate !== this.context.sampleRate) throw new Error('不同采样率设备必须停止后切换；不会变速播放。')
+    const result = await this.api('POST', `/audio/output/${id}/switch`, {
+      device_id: deviceId, sample_rate: sampleRate, mode: this.store.transport.output_mode || 'shared',
+    })
+    if (!this.isCurrent(generation) || this.deviceOutputId !== id) return
+    this.store.transport.output_device_id = result.device_id
+    this.store.transport.output_sample_rate = result.sample_rate
+    this.nativeStats.device = result.device
+    this.publishNativeStats()
+  }
   positionMs() {
     if (!this.clockRunning) return this.heldMs
     if (this.nativeMode) return this.anchorMs + Math.max(0, (this.nativeHeardFrames || 0) - this.nativeLatencySamples) * 1000 / this.context.sampleRate
@@ -235,7 +250,12 @@ export class PlaybackEngine {
     let resume
     try {
       const context = this.contextForGesture()
-      resume = context.resume()
+      const deviceOutput = this.store.transport.output === 'device'
+      if (deviceOutput && typeof context.setSinkId !== 'function' && this.store.transport.output_mode === 'exclusive') {
+        throw new Error('当前 WebView 不支持无声源时钟，不能安全使用独占输出；请更新 WebView2 或选择共享模式。')
+      }
+      const sink = typeof context.setSinkId === 'function' ? context.setSinkId(deviceOutput ? { type: 'none' } : '') : Promise.resolve()
+      resume = sink.then(() => context.resume())
     } catch (error) {
       this.fail(error)
       return Promise.resolve()
